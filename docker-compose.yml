@@ -1,0 +1,67 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: 3000
+      DATABASE_URL: file:/data/dev.db
+      API_KEY: ${API_KEY:-change-me}
+      CPM_PUBLIC_URL: ${CPM_PUBLIC_URL:-http://localhost:3000}
+      CPM_FRONTEND_URL: ${CPM_FRONTEND_URL:-http://localhost:5173}
+      OPENWA_WEBHOOK_SECRET: ${OPENWA_WEBHOOK_SECRET:-change-me}
+      OPENWA_BASE_URL: ${OPENWA_BASE_URL:-http://host.docker.internal:2785/api}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-change-me}
+      OPENWA_SESSION_ID: ${OPENWA_SESSION_ID:-change-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-change-me}
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-transcribe}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4.1-mini}
+      N8N_AI_WEBHOOK_URL: ${N8N_AI_WEBHOOK_URL:-}
+      N8N_AI_CALLBACK_SECRET: ${N8N_AI_CALLBACK_SECRET:-change-me}
+      N8N_REQUEST_TIMEOUT_MS: ${N8N_REQUEST_TIMEOUT_MS:-10000}
+      N8N_CONTEXT_MESSAGE_LIMIT: ${N8N_CONTEXT_MESSAGE_LIMIT:-20}
+      N8N_OUTBOUND_API_KEY: ${N8N_OUTBOUND_API_KEY:-}
+      MEDIA_STORAGE_PATH: /data/media
+      MAX_MEDIA_SIZE_MB: ${MAX_MEDIA_SIZE_MB:-50}
+      MEDIA_RETENTION_DAYS: ${MEDIA_RETENTION_DAYS:-30}
+      CONVERSATION_INACTIVITY_MINUTES: ${CONVERSATION_INACTIVITY_MINUTES:-60}
+      FRONTEND_URL: http://localhost:5173
+      NODE_ENV: production
+      IGNORE_GROUP_MESSAGES: "true"
+      IGNORE_STATUS_BROADCASTS: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - sqlite-data:/data
+
+  worker:
+    build:
+      context: ./backend
+    command: ["node", "dist/main.js"]
+    environment:
+      PORT: 3001
+      DATABASE_URL: file:/data/dev.db
+      API_KEY: ${API_KEY:-change-me}
+      CPM_PUBLIC_URL: ${CPM_PUBLIC_URL:-http://localhost:3000}
+      OPENWA_BASE_URL: ${OPENWA_BASE_URL:-http://host.docker.internal:2785/api}
+      OPENWA_API_KEY: ${OPENWA_API_KEY:-change-me}
+      OPENWA_SESSION_ID: ${OPENWA_SESSION_ID:-change-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-change-me}
+      N8N_AI_WEBHOOK_URL: ${N8N_AI_WEBHOOK_URL:-}
+      N8N_AI_CALLBACK_SECRET: ${N8N_AI_CALLBACK_SECRET:-change-me}
+      MEDIA_STORAGE_PATH: /data/media
+      NODE_ENV: production
+    volumes:
+      - sqlite-data:/data
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  sqlite-data:

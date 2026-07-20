@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id              String              @id @default(uuid())
+  displayName     String?
+  pushName        String?
+  firstName       String?
+  lastName        String?
+  phoneNumber     String?
+  whatsappId      String?
+  lid             String?
+  chatId          String?
+  email           String?
+  company         String?
+  jobTitle        String?
+  country         String?
+  city            String?
+  source          String?
+  status          String              @default("new")
+  interests       String              @default("[]")
+  freeTextProfile String?
+  internalNotes   String?
+  metadata        String              @default("{}")
+  firstContactAt  DateTime?
+  lastContactAt   DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  attributes      CustomerAttribute[]
+  conversations   Conversation[]
+  messages        Message[]
+  mediaAttachments MediaAttachment[]
+  processingJobs  ProcessingJob[]
+
+  @@index([whatsappId])
+  @@index([lid])
+  @@index([phoneNumber])
+  @@index([status])
+  @@index([lastContactAt])
+}
+
+model CustomerAttribute {
+  id         String   @id @default(uuid())
+  customerId String
+  key        String
+  value      String
+  valueType  String   @default("string")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, key])
+  @@index([key])
+}
+
+model Conversation {
+  id            String    @id @default(uuid())
+  customerId    String
+  channel       String    @default("whatsapp")
+  externalChatId String?
+  sessionId     String?
+  status        String    @default("active")
+  startedAt     DateTime  @default(now())
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  mediaAttachments MediaAttachment[]
+  processingJobs  ProcessingJob[]
+
+  @@index([customerId])
+  @@index([externalChatId])
+  @@index([sessionId])
+  @@index([status])
+}
+
+model Message {
+  id                String       @id @default(uuid())
+  conversationId    String
+  customerId        String
+  externalMessageId String?      @unique
+  idempotencyKey    String?      @unique
+  deliveryId        String?      @unique
+  direction         String
+  senderType        String
+  messageType       String       @default("text")
+  body              String?
+  mediaUrl          String?
+  caption           String?
+  rawPayload        String       @default("{}")
+  metadata          String       @default("{}")
+  status            String       @default("received")
+  n8nStatus         String       @default("not_queued")
+  retryCount        Int          @default(0)
+  failureReason     String?
+  processedText     String?
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime     @default(now())
+  customer          Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  mediaAttachments  MediaAttachment[]
+  processingJobs    ProcessingJob[]
+
+  @@index([customerId])
+  @@index([conversationId])
+  @@index([direction])
+  @@index([status])
+  @@index([n8nStatus])
+  @@index([createdAt])
+}
+
+model WebhookDelivery {
+  id             String    @id @default(uuid())
+  event          String
+  sessionId      String?
+  idempotencyKey String?   @unique
+  deliveryId     String?
+  retryCount     Int       @default(0)
+  signatureValid Boolean   @default(false)
+  status         String    @default("received")
+  rawPayload     String    @default("{}")
+  headers        String    @default("{}")
+  error          String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+
+  @@index([event])
+  @@index([sessionId])
+  @@index([deliveryId])
+  @@index([status])
+  @@index([receivedAt])
+}
+
+model MediaAttachment {
+  id                String       @id @default(uuid())
+  messageId         String
+  customerId        String
+  conversationId    String
+  externalMediaId   String?
+  mediaType         String
+  mimeType          String?
+  filename          String?
+  sourceUrl         String?
+  localPath         String?
+  publicUrl         String?
+  sizeBytes         Int?
+  transcript        String?
+  visionSummary     String?
+  status            String       @default("pending")
+  rawPayload         String       @default("{}")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  message           Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  customer          Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([customerId])
+  @@index([conversationId])
+  @@index([status])
+}
+
+model ProcessingJob {
+  id             String        @id @default(uuid())
+  type           String        @default("n8n_ai")
+  status         String        @default("queued")
+  attempts       Int           @default(0)
+  maxAttempts    Int           @default(3)
+  nextRunAt      DateTime?
+  lastError      String?
+  payload        String        @default("{}")
+  result         String        @default("{}")
+  correlationId  String        @unique
+  customerId     String?
+  conversationId String?
+  messageId      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  completedAt    DateTime?
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message        Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([type])
+  @@index([customerId])
+  @@index([conversationId])
+  @@index([messageId])
+  @@index([createdAt])
+}

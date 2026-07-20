@@ -8,6 +8,11 @@ const migrationsDir = path.join(__dirname, "..", "prisma", "migrations");
 
 mkdirSync(path.dirname(dbPath), { recursive: true });
 
+if (tryPrismaMigrate()) {
+  console.log(`Prisma migrations applied for ${databaseUrl}`);
+  process.exit(0);
+}
+
 execFileSync("sqlite3", [dbPath], {
   input: 'CREATE TABLE IF NOT EXISTS "_cpm_migrations" ("name" TEXT NOT NULL PRIMARY KEY, "appliedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);\n',
   stdio: ["pipe", "inherit", "inherit"]
@@ -63,4 +68,34 @@ function resolveSqlitePath(url) {
     return rawPath;
   }
   return path.resolve(__dirname, "..", "prisma", rawPath);
+}
+
+function tryPrismaMigrate() {
+  try {
+    execFileSync("npx", ["prisma", "migrate", "deploy"], {
+      cwd: path.join(__dirname, ".."),
+      env: { ...process.env, DATABASE_URL: databaseUrl },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return true;
+  } catch {
+    ensureSqliteCli();
+    return false;
+  }
+}
+
+function ensureSqliteCli() {
+  try {
+    execFileSync("sqlite3", ["--version"], { stdio: "ignore" });
+  } catch {
+    throw new Error(
+      [
+        "Could not run Prisma migrations, and the sqlite3 CLI is not installed for the fallback setup.",
+        "Install sqlite3, then rerun npm run db:setup.",
+        "Debian/Ubuntu: apt-get update && apt-get install -y sqlite3",
+        "Alpine: apk add --no-cache sqlite",
+        "macOS: brew install sqlite"
+      ].join("\n")
+    );
+  }
 }

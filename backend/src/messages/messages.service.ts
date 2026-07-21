@@ -45,7 +45,10 @@ export class MessagesService {
   }
 
   async findOne(id: string): Promise<Message> {
-    const message = await this.prisma.message.findUnique({ where: { id } });
+    const message = await this.prisma.message.findUnique({
+      where: { id },
+      include: { mediaAttachments: { orderBy: { createdAt: "asc" } } }
+    });
     if (!message) {
       throw new NotFoundException({ code: "MESSAGE_NOT_FOUND", message: "Message was not found." });
     }
@@ -209,7 +212,8 @@ export class MessagesService {
         where,
         orderBy: { createdAt: "asc" },
         skip: (query.page - 1) * query.limit,
-        take: query.limit
+        take: query.limit,
+        include: { mediaAttachments: { orderBy: { createdAt: "asc" } } }
       }),
       this.prisma.message.count({ where })
     ]);

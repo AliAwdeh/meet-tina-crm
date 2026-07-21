@@ -168,7 +168,7 @@ export class N8nService {
       where: { id: job.id },
       data: {
         status: "completed",
-        result: stringifyJson(input, "{}"),
+        result: stringifyJson(mergeCallbackResult(job.result, input, sentMessages.length), "{}"),
         completedAt: new Date()
       }
     });
@@ -202,6 +202,24 @@ function extractReplies(body: Record<string, unknown> | null): string[] {
   }
   const single = stringValue(body.text) ?? stringValue(body.message) ?? stringValue(body.response);
   return single ? [single] : [];
+}
+
+function mergeCallbackResult(previousResult: string | null, callback: unknown, sentMessageCount: number): Record<string, unknown> {
+  const previous = parseJsonRecord(previousResult);
+  if (previous && ("dispatch" in previous || "callback" in previous)) {
+    return { ...previous, callback, callbackSentMessageCount: sentMessageCount };
+  }
+  return { dispatch: previous, callback, callbackSentMessageCount: sentMessageCount };
+}
+
+function parseJsonRecord(value: string | null): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function phoneChatId(phoneNumber: string | null): string | null {

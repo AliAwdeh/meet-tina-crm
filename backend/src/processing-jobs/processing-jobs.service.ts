@@ -16,7 +16,7 @@ export class ProcessingJobsService {
       include: {
         customer: { select: { id: true, displayName: true, whatsappId: true, phoneNumber: true } },
         conversation: { select: { id: true, externalChatId: true, sessionId: true } },
-        message: { select: { id: true, body: true, messageType: true, status: true, n8nStatus: true } }
+        message: { select: { id: true, body: true, processedText: true, messageType: true, status: true, n8nStatus: true } }
       }
     });
   }

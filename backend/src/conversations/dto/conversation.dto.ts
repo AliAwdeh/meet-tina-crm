@@ -55,4 +55,9 @@ export class ConversationListQueryDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @ApiPropertyOptional({ enum: ["recent", "oldest", "customer"], default: "recent" })
+  @IsOptional()
+  @IsIn(["recent", "oldest", "customer"])
+  sort?: "recent" | "oldest" | "customer" = "recent";
 }

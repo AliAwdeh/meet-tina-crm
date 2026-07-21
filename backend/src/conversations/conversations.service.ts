@@ -31,7 +31,7 @@ export class ConversationsService {
     const [data, total] = await this.prisma.$transaction([
       this.prisma.conversation.findMany({
         where,
-        orderBy: { updatedAt: "desc" },
+        orderBy: conversationOrderBy(query.sort),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
         include: { customer: true, _count: { select: { messages: true } } }
@@ -52,7 +52,13 @@ export class ConversationsService {
   async findOne(id: string): Promise<unknown> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id },
-      include: { customer: true, messages: { orderBy: { createdAt: "asc" } } }
+      include: {
+        customer: true,
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: { mediaAttachments: { orderBy: { createdAt: "asc" } } }
+        }
+      }
     });
     if (!conversation) {
       throw new NotFoundException({ code: "CONVERSATION_NOT_FOUND", message: "Conversation was not found." });
@@ -89,4 +95,10 @@ export class ConversationsService {
       throw new NotFoundException({ code: "CONVERSATION_NOT_FOUND", message: "Conversation was not found." });
     }
   }
+}
+
+function conversationOrderBy(sort: ConversationListQueryDto["sort"]): Prisma.ConversationOrderByWithRelationInput {
+  if (sort === "oldest") return { lastMessageAt: "asc" };
+  if (sort === "customer") return { customer: { displayName: "asc" } };
+  return { lastMessageAt: "desc" };
 }

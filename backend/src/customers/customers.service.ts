@@ -113,10 +113,26 @@ export class CustomersService {
     >;
     attributes: Record<string, unknown>;
     recentMessages: Array<{
+      id: string;
       direction: string;
       senderType: string;
+      messageType: string;
       body: string | null;
+      caption: string | null;
+      processedText: string | null;
+      receivedAt: string | null;
+      sentAt: string | null;
+      createdAt: string;
       timestamp: string;
+      mediaAttachments: Array<{
+        id: string;
+        mediaType: string;
+        mimeType: string | null;
+        filename: string | null;
+        transcript: string | null;
+        visionSummary: string | null;
+        status: string;
+      }>;
     }>;
   }> {
     const customer = await this.findOne(customerId);
@@ -125,7 +141,8 @@ export class CustomersService {
       this.prisma.message.findMany({
         where: { customerId },
         orderBy: { createdAt: "desc" },
-        take: messageLimit
+        take: messageLimit,
+        include: { mediaAttachments: { orderBy: { createdAt: "asc" } } }
       })
     ]);
     return {
@@ -142,10 +159,26 @@ export class CustomersService {
       },
       attributes: Object.fromEntries(attributes.map((attribute) => [attribute.key, toAttributeView(attribute).value])),
       recentMessages: messages.reverse().map((message) => ({
+        id: message.id,
         direction: message.direction,
         senderType: message.senderType,
+        messageType: message.messageType,
         body: message.body,
-        timestamp: (message.receivedAt ?? message.sentAt ?? message.createdAt).toISOString()
+        caption: message.caption,
+        processedText: message.processedText,
+        receivedAt: message.receivedAt?.toISOString() ?? null,
+        sentAt: message.sentAt?.toISOString() ?? null,
+        createdAt: message.createdAt.toISOString(),
+        timestamp: (message.receivedAt ?? message.sentAt ?? message.createdAt).toISOString(),
+        mediaAttachments: message.mediaAttachments.map((attachment) => ({
+          id: attachment.id,
+          mediaType: attachment.mediaType,
+          mimeType: attachment.mimeType,
+          filename: attachment.filename,
+          transcript: attachment.transcript,
+          visionSummary: attachment.visionSummary,
+          status: attachment.status
+        }))
       }))
     };
   }

@@ -90,12 +90,15 @@ class TinaBrainGraph:
 
         customer_profile = compact_customer_profile(as_record(context.get("customer")) or payload_customer, as_record(context.get("attributes")))
         history = build_message_history(as_list_of_records(context.get("recentMessages")) or payload_recent, payload_message)
-        latest_text = string_value(payload_message.get("body")) or string_value(payload.get("message")) or ""
+        latest_text = string_value(payload_message.get("processedText")) or string_value(payload_message.get("body")) or string_value(payload.get("message")) or ""
+        wanted_service = string_value((as_record(context.get("customer")) or payload_customer).get("wantedService")) or "Not set yet."
 
         user_content = "\n\n".join(
             [
                 "Customer profile:",
                 customer_profile or "No profile details yet.",
+                "Wanted service saved in CRM:",
+                wanted_service,
                 "Conversation history:",
                 history or "No conversation history yet.",
                 "Latest customer message:",

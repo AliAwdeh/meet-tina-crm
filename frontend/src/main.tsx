@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Activity, Check, ChevronLeft, ChevronRight, MessageSquarePlus, Plus, RefreshCw, Search, Save, Trash2 } from "lucide-react";
+import { Activity, Check, ChevronLeft, ChevronRight, FileText, MessageSquare, MessageSquarePlus, Mic, Plus, RefreshCw, Search, Save, Trash2, Wrench } from "lucide-react";
 import "./styles.css";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
@@ -44,9 +44,40 @@ type Message = {
   n8nStatus: string;
   body: string | null;
   caption: string | null;
+  processedText: string | null;
+  mediaUrl: string | null;
   sentAt: string | null;
   receivedAt: string | null;
   createdAt: string;
+  mediaAttachments?: MediaAttachment[];
+};
+
+type MediaAttachment = {
+  id: string;
+  mediaType: string;
+  mimeType: string | null;
+  filename: string | null;
+  sourceUrl: string | null;
+  publicUrl: string | null;
+  transcript: string | null;
+  visionSummary: string | null;
+  status: string;
+  createdAt: string;
+};
+
+type Conversation = {
+  id: string;
+  customerId: string;
+  channel: string;
+  externalChatId: string | null;
+  sessionId: string | null;
+  status: string;
+  startedAt: string;
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer?: Customer | null;
+  _count?: { messages: number };
 };
 
 type ProcessingJob = {
@@ -57,10 +88,19 @@ type ProcessingJob = {
   maxAttempts: number;
   correlationId: string;
   lastError: string | null;
+  payload: string | null;
+  result: string | null;
   createdAt: string;
   updatedAt: string;
-  customer?: { displayName: string | null; whatsappId: string | null; phoneNumber: string | null } | null;
-  message?: { body: string | null; messageType: string; status: string; n8nStatus: string } | null;
+  customer?: { id?: string; displayName: string | null; whatsappId: string | null; phoneNumber: string | null } | null;
+  conversation?: { id: string; externalChatId: string | null; sessionId: string | null } | null;
+  message?: { id?: string; body: string | null; processedText?: string | null; messageType: string; status: string; n8nStatus: string } | null;
+};
+
+type ToolCall = {
+  name: string;
+  args: unknown;
+  result: unknown;
 };
 
 type Stats = {
@@ -99,6 +139,8 @@ function App(): JSX.Element {
           <nav>
             <Link to="/">Dashboard</Link>
             <Link to="/customers">Customers</Link>
+            <Link to="/conversations">Conversations</Link>
+            <Link to="/tool-calls">Tool calls</Link>
             <Link to="/processing-jobs">Processing jobs</Link>
           </nav>
         </aside>
@@ -107,6 +149,8 @@ function App(): JSX.Element {
             <Route path="/" element={<Dashboard />} />
             <Route path="/customers" element={<CustomerList />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
+            <Route path="/conversations" element={<Conversations />} />
+            <Route path="/tool-calls" element={<ToolCalls />} />
             <Route path="/processing-jobs" element={<ProcessingJobs />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -145,6 +189,8 @@ function Dashboard(): JSX.Element {
           <p>Customer and WhatsApp activity overview.</p>
         </div>
         <div className="header-actions">
+          <Link className="button" to="/conversations"><MessageSquare size={16} /> Conversations</Link>
+          <Link className="button" to="/tool-calls"><Wrench size={16} /> Tools</Link>
           <Link className="button" to="/processing-jobs"><Activity size={16} /> Jobs</Link>
           <Link className="button primary" to="/customers"><Search size={16} /> Customers</Link>
         </div>
@@ -324,11 +370,7 @@ function CustomerDetail(): JSX.Element {
         <MessageComposer customerId={customerId} reload={load} />
         <div className="chat">
           {messages.map((message) => (
-            <div key={message.id} className={`bubble ${message.direction}`}>
-              <span>{message.senderType} · {message.messageType} · {formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}</span>
-              <small>{message.status}{message.n8nStatus !== "not_queued" ? ` / n8n ${message.n8nStatus}` : ""}</small>
-              <p>{message.body || message.caption || "-"}</p>
-            </div>
+            <MessageBubble key={message.id} message={message} />
           ))}
         </div>
       </section>
@@ -413,15 +455,16 @@ function AttributesPanel({ customerId, attributes, reload }: { customerId: strin
   );
 }
 
-function MessageComposer({ customerId, reload }: { customerId: string; reload: () => void }): JSX.Element {
+function MessageComposer({ customerId, conversationId, reload }: { customerId: string; conversationId?: string; reload: () => void }): JSX.Element {
   const [body, setBody] = React.useState("");
   const [direction, setDirection] = React.useState<"incoming" | "outgoing">("outgoing");
   const [error, setError] = React.useState("");
 
   async function save(): Promise<void> {
     if (!body.trim()) return;
-    const conversations = await request<Array<{ id: string }>>(`/customers/${customerId}/conversations`);
+    const conversations = conversationId ? [] : await request<Array<{ id: string }>>(`/customers/${customerId}/conversations`);
     const existingConversationId =
+      conversationId ??
       conversations[0]?.id ??
       (
         await request<{ id: string }>("/conversations", {
@@ -470,6 +513,161 @@ function MessageComposer({ customerId, reload }: { customerId: string; reload: (
       </div>
       {error && <p className="error">{error}</p>}
     </>
+  );
+}
+
+function Conversations(): JSX.Element {
+  const [conversations, setConversations] = React.useState<Conversation[]>([]);
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [selectedId, setSelectedId] = React.useState("");
+  const [sort, setSort] = React.useState<"recent" | "oldest" | "customer">("recent");
+  const [groupBy, setGroupBy] = React.useState<"none" | "day" | "hour" | "customer">("none");
+  const [error, setError] = React.useState("");
+
+  const load = React.useCallback(() => {
+    request<{ data: Conversation[] }>(`/conversations?limit=100&sort=${sort}`)
+      .then((body) => {
+        setConversations(body.data);
+        setSelectedId((current) => body.data.some((conversation) => conversation.id === current) ? current : body.data[0]?.id || "");
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [sort]);
+
+  const loadMessages = React.useCallback(() => {
+    if (!selectedId) {
+      setMessages([]);
+      return;
+    }
+    request<{ data: Message[] }>(`/conversations/${selectedId}/messages?limit=200`)
+      .then((body) => {
+        setMessages(body.data);
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [selectedId]);
+
+  React.useEffect(load, [load]);
+  React.useEffect(loadMessages, [loadMessages]);
+
+  const selected = conversations.find((conversation) => conversation.id === selectedId) ?? null;
+  const groups = groupConversations(conversations, groupBy);
+
+  return (
+    <section className="page">
+      <div className="page-header">
+        <div>
+          <h1>Conversations</h1>
+          <p>Review WhatsApp threads, media analysis, transcripts, and manually keep messages.</p>
+        </div>
+        <button className="icon-button" title="Refresh" onClick={() => { load(); loadMessages(); }}><RefreshCw size={16} /></button>
+      </div>
+      <div className="toolbar">
+        <select value={sort} onChange={(event) => setSort(event.target.value as "recent" | "oldest" | "customer")}>
+          <option value="recent">Most recent</option>
+          <option value="oldest">Oldest first</option>
+          <option value="customer">Customer name</option>
+        </select>
+        <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as "none" | "day" | "hour" | "customer")}>
+          <option value="none">No grouping</option>
+          <option value="day">Group by day</option>
+          <option value="hour">Group by hour</option>
+          <option value="customer">Group by customer</option>
+        </select>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="conversation-layout">
+        <aside className="conversation-list">
+          {groups.map((group) => (
+            <div key={group.label} className="conversation-group">
+              <h3>{group.label}</h3>
+              {group.items.map((conversation) => (
+                <button
+                  className={`conversation-row ${conversation.id === selectedId ? "active" : ""}`}
+                  key={conversation.id}
+                  onClick={() => setSelectedId(conversation.id)}
+                >
+                  <strong>{conversation.customer?.displayName ?? conversation.customer?.whatsappId ?? "Unnamed customer"}</strong>
+                  <span>{conversation._count?.messages ?? 0} messages · {formatDate(conversation.lastMessageAt ?? conversation.updatedAt)}</span>
+                  <small>{conversation.externalChatId ?? conversation.channel}</small>
+                </button>
+              ))}
+            </div>
+          ))}
+        </aside>
+        <section className="conversation-detail">
+          {selected ? (
+            <>
+              <div className="thread-header">
+                <div>
+                  <h2>{selected.customer?.displayName ?? "Conversation"}</h2>
+                  <p>{selected.customer?.wantedService ? `Wanted service: ${selected.customer.wantedService}` : "Wanted service not set yet"}</p>
+                </div>
+                {selected.customerId && <Link className="button" to={`/customers/${selected.customerId}`}>Open customer</Link>}
+              </div>
+              <MessageComposer customerId={selected.customerId} conversationId={selected.id} reload={() => { load(); loadMessages(); }} />
+              <div className="chat">
+                {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+              </div>
+            </>
+          ) : (
+            <p>No conversations yet.</p>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ToolCalls(): JSX.Element {
+  const [jobs, setJobs] = React.useState<ProcessingJob[]>([]);
+  const [error, setError] = React.useState("");
+
+  const load = React.useCallback(() => {
+    request<ProcessingJob[]>("/processing-jobs")
+      .then((body) => {
+        setJobs(body);
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, []);
+
+  React.useEffect(load, [load]);
+
+  const rows = jobs.flatMap((job) => extractToolCalls(job).map((call, index) => ({ ...call, key: `${job.id}-${index}`, job })));
+
+  return (
+    <section className="page">
+      <div className="page-header">
+        <div>
+          <h1>Tool calls</h1>
+          <p>CRM writes and TinaBrain tool results captured from processing jobs.</p>
+        </div>
+        <button className="icon-button" title="Refresh" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="tool-call-grid">
+        {rows.map((row) => (
+          <article className="tool-card" key={row.key}>
+            <div className="tool-card-header">
+              <span className="status">{row.name}</span>
+              <small>{formatDate(row.job.updatedAt ?? row.job.createdAt)}</small>
+            </div>
+            <strong>{row.job.customer?.displayName ?? row.job.customer?.whatsappId ?? "Unknown customer"}</strong>
+            <p>{row.job.message?.processedText ?? row.job.message?.body ?? row.job.message?.messageType ?? "-"}</p>
+            <details>
+              <summary>Arguments</summary>
+              <pre>{formatJson(row.args)}</pre>
+            </details>
+            <details>
+              <summary>Result</summary>
+              <pre>{formatJson(row.result)}</pre>
+            </details>
+          </article>
+        ))}
+        {rows.length === 0 && <p>No tool calls captured yet.</p>}
+      </div>
+    </section>
   );
 }
 
@@ -533,6 +731,98 @@ function ProcessingJobs(): JSX.Element {
       </div>
     </section>
   );
+}
+
+function MessageBubble({ message }: { message: Message }): JSX.Element {
+  const content = message.body || message.caption || message.processedText || "-";
+  const hasProcessedText = Boolean(message.processedText && message.processedText !== message.body && message.processedText !== message.caption);
+  return (
+    <div className={`bubble ${message.direction}`}>
+      <span>{message.senderType} · {message.messageType} · {formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}</span>
+      <small>{message.status}{message.n8nStatus !== "not_queued" ? ` / n8n ${message.n8nStatus}` : ""}</small>
+      <p>{content}</p>
+      {hasProcessedText && <pre className="message-analysis">{message.processedText}</pre>}
+      {(message.mediaAttachments ?? []).map((attachment) => (
+        <div className="attachment" key={attachment.id}>
+          <span>{attachmentIcon(attachment)} {attachment.filename ?? attachment.mediaType} · {attachment.status}</span>
+          {attachment.transcript && <p>{attachment.transcript}</p>}
+          {attachment.visionSummary && <p>{attachment.visionSummary}</p>}
+          {(attachment.publicUrl || attachment.sourceUrl) && <a href={attachment.publicUrl ?? attachment.sourceUrl ?? "#"} target="_blank" rel="noreferrer">Open source</a>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function attachmentIcon(attachment: MediaAttachment): JSX.Element {
+  if (attachment.mimeType?.startsWith("audio/") || attachment.mediaType === "ptt" || attachment.mediaType === "audio") {
+    return <Mic size={14} />;
+  }
+  return <FileText size={14} />;
+}
+
+function groupConversations(conversations: Conversation[], groupBy: "none" | "day" | "hour" | "customer"): Array<{ label: string; items: Conversation[] }> {
+  if (groupBy === "none") return [{ label: "All conversations", items: conversations }];
+  const groups = new Map<string, Conversation[]>();
+  for (const conversation of conversations) {
+    const date = new Date(conversation.lastMessageAt ?? conversation.updatedAt);
+    const label =
+      groupBy === "customer"
+        ? (conversation.customer?.displayName ?? conversation.customer?.whatsappId ?? "Unnamed customer")
+        : groupBy === "hour"
+          ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", hour: "numeric" }).format(date)
+          : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+    groups.set(label, [...(groups.get(label) ?? []), conversation]);
+  }
+  return Array.from(groups, ([label, items]) => ({ label, items }));
+}
+
+function extractToolCalls(job: ProcessingJob): ToolCall[] {
+  const result = parseJson(job.result);
+  const payload = parseJson(job.payload);
+  const dispatch = recordValue(result?.dispatch);
+  const callback = recordValue(result?.callback);
+  const candidates = [
+    result?.toolCalls,
+    result?.tool_calls,
+    dispatch?.toolCalls,
+    dispatch?.tool_calls,
+    callback?.toolCalls,
+    callback?.tool_calls,
+    payload?.toolCalls,
+    payload?.tool_calls
+  ];
+  return candidates.flatMap((candidate) => normalizeToolCalls(candidate));
+}
+
+function normalizeToolCalls(value: unknown): ToolCall[] {
+  if (!Array.isArray(value)) return [];
+  const calls: ToolCall[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name : typeof record.tool === "string" ? record.tool : "tool";
+    calls.push({ name, args: record.args ?? record.arguments ?? {}, result: record.result ?? record.output ?? null });
+  }
+  return calls;
+}
+
+function parseJson(value: string | null | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return recordValue(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function formatJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
 }
 
 function Input({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string) => void }): JSX.Element {

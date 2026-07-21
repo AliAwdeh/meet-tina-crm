@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { stringifyJson } from "../../common/json.util";
 import { PrismaService } from "../../database/prisma.service";
+import { MediaService } from "../../media/media.service";
 import { N8nService } from "../n8n/n8n.service";
 import { NormalizedOpenwaEvent, NormalizedOpenwaMessage, OpenwaAckPayload, OpenwaProcessResult } from "./openwa.types";
 import { OpenwaNormalizerService } from "./openwa-normalizer.service";
@@ -14,7 +15,8 @@ export class OpenwaService {
     private readonly prisma: PrismaService,
     private readonly normalizer: OpenwaNormalizerService,
     private readonly config: ConfigService,
-    private readonly n8n: N8nService
+    private readonly n8n: N8nService,
+    private readonly media: MediaService
   ) {}
 
   async process(input: unknown, options: { rawBody?: Buffer; headers?: Record<string, string | string[] | undefined> } = {}): Promise<OpenwaProcessResult> {
@@ -145,6 +147,7 @@ export class OpenwaService {
 
     if ("duplicate" in result && result.duplicate === false && normalized.direction === "incoming" && normalized.event === "message.received") {
       const correlationId = `cpm_${result.message.id}`;
+      await this.media.processMessageAttachments(result.message.id);
       const processingJob = await this.n8n.createAndDispatch({
         customerId: result.customer.id,
         conversationId: result.conversation.id,

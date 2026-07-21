@@ -303,6 +303,70 @@ label {
   margin-top: 14px;
 }
 
+.conversation-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+}
+
+.conversation-list,
+.conversation-detail {
+  background: #fff;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.conversation-list {
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+}
+
+.conversation-group + .conversation-group {
+  margin-top: 18px;
+}
+
+.conversation-group h3 {
+  color: #596861;
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.conversation-row {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.conversation-row:hover,
+.conversation-row.active {
+  background: #eef5f1;
+  border-color: #cfe0d5;
+}
+
+.conversation-row span,
+.conversation-row small,
+.thread-header p {
+  color: #65746c;
+  font-size: 12px;
+}
+
+.thread-header {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
 .bubble {
   border-radius: 8px;
   max-width: min(720px, 82%);
@@ -331,6 +395,69 @@ label {
 .bubble.outgoing {
   background: #f3efe7;
   justify-self: end;
+}
+
+.message-analysis,
+.tool-card pre {
+  background: #101816;
+  border-radius: 6px;
+  color: #eaf4ee;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.attachment {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.attachment span {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.attachment a {
+  color: #256b4a;
+  font-size: 13px;
+}
+
+.tool-call-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.tool-card {
+  background: #fff;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.tool-card-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tool-card details {
+  border-top: 1px solid #edf1ee;
+  padding-top: 8px;
+}
+
+.tool-card summary {
+  cursor: pointer;
+  font-weight: 650;
 }
 
 .success,
@@ -381,7 +508,8 @@ label {
 
   .stats-grid,
   .detail-grid,
-  .form-grid {
+  .form-grid,
+  .conversation-layout {
     grid-template-columns: 1fr;
   }
 

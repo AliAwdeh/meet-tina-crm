@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     tinabrain_inbound_api_key: str = Field(default="", alias="TINABRAIN_INBOUND_API_KEY")
 
     openai_api_key: str = Field(default="change-me", alias="OPENAI_API_KEY")
-    tinabrain_model: str = Field(default="gpt-4.1-mini", alias="TINABRAIN_MODEL")
+    tinabrain_model: str = Field(default="gpt-5.4-mini", alias="TINABRAIN_MODEL")
     tinabrain_temperature: float = Field(default=0.2, alias="TINABRAIN_TEMPERATURE")
     tinabrain_max_tool_rounds: int = Field(default=4, alias="TINABRAIN_MAX_TOOL_ROUNDS")
     tinabrain_auto_callback: bool = Field(default=True, alias="TINABRAIN_AUTO_CALLBACK")

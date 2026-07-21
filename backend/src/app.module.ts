@@ -7,6 +7,7 @@ import { ConversationsModule } from "./conversations/conversations.module";
 import { CustomersModule } from "./customers/customers.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
+import { AiProcessingModule } from "./integrations/ai-processing/ai-processing.module";
 import { MessagesModule } from "./messages/messages.module";
 import { MediaModule } from "./media/media.module";
 import { StatsModule } from "./stats/stats.module";
@@ -28,6 +29,7 @@ import { ProcessingJobsModule } from "./processing-jobs/processing-jobs.module";
     DatabaseModule,
     HealthModule,
     CustomersModule,
+    AiProcessingModule,
     ConversationsModule,
     MessagesModule,
     MediaModule,

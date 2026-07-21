@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -95,7 +96,7 @@ class TinaBrainGraph:
 
         user_content = "\n\n".join(
             [
-                "Customer profile:",
+                "Information about the prospect saved in CPM/CRM (structured, not JSON):",
                 customer_profile or "No profile details yet.",
                 "Wanted service saved in CRM:",
                 wanted_service,
@@ -149,7 +150,7 @@ class TinaBrainGraph:
                 result: Any = {"error": f"Unknown tool: {name}"}
             else:
                 result = await tool.ainvoke(args)
-            recorded_calls.append({"name": name, "args": args, "result": result})
+            recorded_calls.append({"name": name, "args": args, "result": result, "triggeredAt": datetime.now(UTC).isoformat()})
             messages.append(ToolMessage(content=stringify_tool_result(result), tool_call_id=call["id"]))
 
         return {

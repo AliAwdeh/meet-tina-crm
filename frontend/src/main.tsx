@@ -101,6 +101,7 @@ type ToolCall = {
   name: string;
   args: unknown;
   result: unknown;
+  triggeredAt?: string;
 };
 
 type Stats = {
@@ -232,6 +233,10 @@ function CustomerList(): JSX.Element {
   }, [page, search, sort, status]);
 
   React.useEffect(load, [load]);
+  React.useEffect(() => {
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   async function createCustomer(): Promise<void> {
     const created = await request<Customer>("/customers", {
@@ -318,6 +323,10 @@ function CustomerDetail(): JSX.Element {
   }, [customerId]);
 
   React.useEffect(load, [load]);
+  React.useEffect(() => {
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   async function saveCustomer(next: Customer): Promise<void> {
     const updated = await request<Customer>(`/customers/${customerId}`, {
@@ -519,6 +528,7 @@ function MessageComposer({ customerId, conversationId, reload }: { customerId: s
 function Conversations(): JSX.Element {
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [messages, setMessages] = React.useState<Message[]>([]);
+  const [jobs, setJobs] = React.useState<ProcessingJob[]>([]);
   const [selectedId, setSelectedId] = React.useState("");
   const [sort, setSort] = React.useState<"recent" | "oldest" | "customer">("recent");
   const [groupBy, setGroupBy] = React.useState<"none" | "day" | "hour" | "customer">("none");
@@ -547,11 +557,30 @@ function Conversations(): JSX.Element {
       .catch((err: Error) => setError(err.message));
   }, [selectedId]);
 
+  const loadJobs = React.useCallback(() => {
+    request<ProcessingJob[]>("/processing-jobs")
+      .then((body) => {
+        setJobs(body);
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, []);
+
   React.useEffect(load, [load]);
   React.useEffect(loadMessages, [loadMessages]);
+  React.useEffect(loadJobs, [loadJobs]);
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      load();
+      loadMessages();
+      loadJobs();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [load, loadJobs, loadMessages]);
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) ?? null;
   const groups = groupConversations(conversations, groupBy);
+  const timeline = buildConversationTimeline(messages, jobs.filter((job) => job.conversation?.id === selectedId));
 
   return (
     <section className="page">
@@ -560,7 +589,7 @@ function Conversations(): JSX.Element {
           <h1>Conversations</h1>
           <p>Review WhatsApp threads, media analysis, transcripts, and manually keep messages.</p>
         </div>
-        <button className="icon-button" title="Refresh" onClick={() => { load(); loadMessages(); }}><RefreshCw size={16} /></button>
+        <button className="icon-button" title="Refresh" onClick={() => { load(); loadMessages(); loadJobs(); }}><RefreshCw size={16} /></button>
       </div>
       <div className="toolbar">
         <select value={sort} onChange={(event) => setSort(event.target.value as "recent" | "oldest" | "customer")}>
@@ -605,9 +634,15 @@ function Conversations(): JSX.Element {
                 </div>
                 {selected.customerId && <Link className="button" to={`/customers/${selected.customerId}`}>Open customer</Link>}
               </div>
-              <MessageComposer customerId={selected.customerId} conversationId={selected.id} reload={() => { load(); loadMessages(); }} />
+              <MessageComposer customerId={selected.customerId} conversationId={selected.id} reload={() => { load(); loadMessages(); loadJobs(); }} />
               <div className="chat">
-                {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+                {timeline.map((item) =>
+                  item.type === "message" ? (
+                    <MessageBubble key={`message-${item.message.id}`} message={item.message} />
+                  ) : (
+                    <ToolCallBubble key={`tool-${item.job.id}-${item.index}`} job={item.job} call={item.call} />
+                  )
+                )}
               </div>
             </>
           ) : (
@@ -633,6 +668,10 @@ function ToolCalls(): JSX.Element {
   }, []);
 
   React.useEffect(load, [load]);
+  React.useEffect(() => {
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   const rows = jobs.flatMap((job) => extractToolCalls(job).map((call, index) => ({ ...call, key: `${job.id}-${index}`, job })));
 
@@ -685,6 +724,10 @@ function ProcessingJobs(): JSX.Element {
   }, []);
 
   React.useEffect(load, [load]);
+  React.useEffect(() => {
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   async function retry(id: string): Promise<void> {
     await request(`/processing-jobs/${id}/retry`, { method: "POST" });
@@ -709,6 +752,7 @@ function ProcessingJobs(): JSX.Element {
               <th>Customer</th>
               <th>Message</th>
               <th>Attempts</th>
+              <th>Failure</th>
               <th>Correlation</th>
               <th>Updated</th>
               <th></th>
@@ -721,6 +765,7 @@ function ProcessingJobs(): JSX.Element {
                 <td>{job.customer?.displayName ?? job.customer?.whatsappId ?? job.customer?.phoneNumber ?? "-"}</td>
                 <td>{job.message?.body ?? job.message?.messageType ?? "-"}</td>
                 <td>{job.attempts}/{job.maxAttempts}</td>
+                <td>{job.lastError ?? "-"}</td>
                 <td>{job.correlationId}</td>
                 <td>{formatDate(job.updatedAt ?? job.createdAt)}</td>
                 <td><button className="icon-button" title="Retry" onClick={() => void retry(job.id)}><RefreshCw size={15} /></button></td>
@@ -754,11 +799,58 @@ function MessageBubble({ message }: { message: Message }): JSX.Element {
   );
 }
 
+function ToolCallBubble({ job, call }: { job: ProcessingJob; call: ToolCall }): JSX.Element {
+  return (
+    <details className="tool-bubble">
+      <summary>
+        <Wrench size={14} />
+        <span>{call.name}</span>
+        <small>{formatDate(call.triggeredAt ?? job.createdAt)} · {job.status} · attempt {job.attempts}/{job.maxAttempts}</small>
+      </summary>
+      {job.lastError && <p className="error compact-error">{job.lastError}</p>}
+      <div className="tool-detail-grid">
+        <div>
+          <strong>Arguments</strong>
+          <pre>{formatJson(call.args)}</pre>
+        </div>
+        <div>
+          <strong>Result</strong>
+          <pre>{formatJson(call.result)}</pre>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function attachmentIcon(attachment: MediaAttachment): JSX.Element {
   if (attachment.mimeType?.startsWith("audio/") || attachment.mediaType === "ptt" || attachment.mediaType === "audio") {
     return <Mic size={14} />;
   }
   return <FileText size={14} />;
+}
+
+type ConversationTimelineItem =
+  | { type: "message"; at: string; message: Message }
+  | { type: "tool"; at: string; job: ProcessingJob; call: ToolCall; index: number };
+
+function buildConversationTimeline(messages: Message[], jobs: ProcessingJob[]): ConversationTimelineItem[] {
+  const items: ConversationTimelineItem[] = messages.map((message) => ({
+    type: "message",
+    at: message.receivedAt ?? message.sentAt ?? message.createdAt,
+    message
+  }));
+  for (const job of jobs) {
+    extractToolCalls(job).forEach((call, index) => {
+      items.push({
+        type: "tool",
+        at: call.triggeredAt ?? job.createdAt,
+        job,
+        call,
+        index
+      });
+    });
+  }
+  return items.sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime());
 }
 
 function groupConversations(conversations: Conversation[], groupBy: "none" | "day" | "hour" | "customer"): Array<{ label: string; items: Conversation[] }> {
@@ -782,9 +874,12 @@ function extractToolCalls(job: ProcessingJob): ToolCall[] {
   const payload = parseJson(job.payload);
   const dispatch = recordValue(result?.dispatch);
   const callback = recordValue(result?.callback);
+  const tinaResponse = recordValue(result?.tinaResponse);
   const candidates = [
     result?.toolCalls,
     result?.tool_calls,
+    tinaResponse?.toolCalls,
+    tinaResponse?.tool_calls,
     dispatch?.toolCalls,
     dispatch?.tool_calls,
     callback?.toolCalls,
@@ -802,7 +897,8 @@ function normalizeToolCalls(value: unknown): ToolCall[] {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name : typeof record.tool === "string" ? record.tool : "tool";
-    calls.push({ name, args: record.args ?? record.arguments ?? {}, result: record.result ?? record.output ?? null });
+    const triggeredAt = typeof record.triggeredAt === "string" ? record.triggeredAt : undefined;
+    calls.push({ name, args: record.args ?? record.arguments ?? {}, result: record.result ?? record.output ?? null, triggeredAt });
   }
   return calls;
 }

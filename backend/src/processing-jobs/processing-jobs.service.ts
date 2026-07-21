@@ -1,11 +1,13 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { AiProcessingService } from "../integrations/ai-processing/ai-processing.service";
 import { N8nService } from "../integrations/n8n/n8n.service";
 
 @Injectable()
 export class ProcessingJobsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly aiProcessing: AiProcessingService,
     private readonly n8n: N8nService
   ) {}
 
@@ -37,7 +39,10 @@ export class ProcessingJobsService {
   }
 
   async retry(id: string): Promise<unknown> {
-    await this.findOne(id);
+    const job = (await this.findOne(id)) as { type?: string };
+    if (job.type === "tinabrain_ai") {
+      return this.aiProcessing.retry(id);
+    }
     return this.n8n.retry(id);
   }
 }

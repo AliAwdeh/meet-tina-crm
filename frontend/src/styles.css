@@ -398,7 +398,8 @@ label {
 }
 
 .message-analysis,
-.tool-card pre {
+.tool-card pre,
+.tool-bubble pre {
   background: #101816;
   border-radius: 6px;
   color: #eaf4ee;
@@ -426,6 +427,44 @@ label {
 .attachment a {
   color: #256b4a;
   font-size: 13px;
+}
+
+.tool-bubble {
+  background: #fff;
+  border: 1px solid #cbd8d0;
+  border-radius: 8px;
+  justify-self: center;
+  max-width: min(780px, 88%);
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.tool-bubble summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+}
+
+.tool-bubble summary span {
+  font-weight: 700;
+}
+
+.tool-bubble summary small {
+  color: #65746c;
+  margin-left: auto;
+}
+
+.tool-detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.compact-error {
+  margin-top: 10px;
+  padding: 8px 10px;
 }
 
 .tool-call-grid {
@@ -509,7 +548,8 @@ label {
   .stats-grid,
   .detail-grid,
   .form-grid,
-  .conversation-layout {
+  .conversation-layout,
+  .tool-detail-grid {
     grid-template-columns: 1fr;
   }
 

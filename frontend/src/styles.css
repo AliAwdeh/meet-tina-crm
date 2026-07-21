@@ -387,6 +387,10 @@ label {
   margin-bottom: 6px;
 }
 
+.bubble .failure-reason {
+  color: #963535;
+}
+
 .bubble.incoming {
   background: #eef5f1;
   justify-self: start;

@@ -104,6 +104,9 @@ export class MediaService {
   private async loadAttachmentBytes(
     attachment: MediaAttachment
   ): Promise<{ buffer: Buffer; filename: string; mimeType: string | null } | null> {
+    const embedded = embeddedMediaFromRawPayload(attachment);
+    if (embedded) return embedded;
+
     if (attachment.localPath && existsSync(attachment.localPath)) {
       return {
         buffer: await readFile(attachment.localPath),
@@ -239,4 +242,40 @@ function mergeRawPayload(rawPayload: string, value: Record<string, unknown>): st
     // Keep going with a structured fallback.
   }
   return JSON.stringify(value);
+}
+
+function embeddedMediaFromRawPayload(attachment: MediaAttachment): { buffer: Buffer; filename: string; mimeType: string | null } | null {
+  const raw = parseRawPayload(attachment.rawPayload);
+  const media = recordValue(recordValue(raw?.data)?.media) ?? recordValue(raw?.media);
+  const data =
+    stringValue(media?.data) ??
+    stringValue(media?.base64) ??
+    stringValue(recordValue(raw?.data)?.mediaData) ??
+    stringValue(recordValue(raw?.data)?.fileData);
+  if (!data) return null;
+  const normalized = data.includes(",") ? data.split(",").pop() : data;
+  if (!normalized) return null;
+  try {
+    const mimeType = attachment.mimeType ?? stringValue(media?.mimetype) ?? stringValue(media?.mimeType);
+    const filename = attachment.filename ?? stringValue(media?.filename) ?? `attachment${extensionForContentType(mimeType)}`;
+    return { buffer: Buffer.from(normalized, "base64"), filename, mimeType };
+  } catch {
+    return null;
+  }
+}
+
+function parseRawPayload(rawPayload: string): Record<string, unknown> | null {
+  try {
+    return recordValue(JSON.parse(rawPayload) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }

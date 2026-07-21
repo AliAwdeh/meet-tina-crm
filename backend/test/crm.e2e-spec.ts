@@ -118,6 +118,45 @@ describe("Meet Tina CRM", () => {
     expect(await prisma.message.count()).toBe(2);
   });
 
+  it("saves unusable incoming messages without sending them to TinaBrain", async () => {
+    const response = await openwaPost(openwaPayload({
+      id: "incoming-empty",
+      idempotencyKey: "key-empty",
+      body: ""
+    })).expect(201);
+
+    const message = await prisma.message.findUniqueOrThrow({ where: { id: response.body.message.id } });
+    expect(message.body).toBeNull();
+    expect(message.n8nStatus).toBe("skipped");
+    expect(message.failureReason).toContain("no usable text");
+    expect(await prisma.processingJob.count()).toBe(0);
+  });
+
+  it("cancels older AI jobs when a newer customer message arrives first", async () => {
+    const first = await openwaPost(openwaPayload({
+      id: "incoming-superseded-1",
+      idempotencyKey: "key-superseded-1",
+      body: "I need a sales chatbot."
+    })).expect(201);
+    const second = await openwaPost(openwaPayload({
+      id: "incoming-superseded-2",
+      idempotencyKey: "key-superseded-2",
+      body: "Actually, it is for appointments."
+    })).expect(201);
+
+    const firstMessage = await prisma.message.findUniqueOrThrow({ where: { id: first.body.message.id } });
+    const secondMessage = await prisma.message.findUniqueOrThrow({ where: { id: second.body.message.id } });
+    const firstJob = await prisma.processingJob.findFirstOrThrow({ where: { messageId: first.body.message.id } });
+    const secondJob = await prisma.processingJob.findFirstOrThrow({ where: { messageId: second.body.message.id } });
+
+    expect(firstMessage.n8nStatus).toBe("superseded");
+    expect(firstMessage.failureReason).toContain("another customer message");
+    expect(firstJob.status).toBe("cancelled");
+    expect(firstJob.lastError).toContain("message_superseded");
+    expect(secondMessage.n8nStatus).not.toBe("superseded");
+    expect(secondJob.id).not.toBe(firstJob.id);
+  });
+
   it("processes outgoing OpenWA and manual messages, then returns chatbot context", async () => {
     const incoming = await openwaPost(openwaPayload({
       id: "incoming-4",

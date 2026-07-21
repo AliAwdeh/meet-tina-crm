@@ -148,6 +148,13 @@ export class OpenwaService {
     if ("duplicate" in result && result.duplicate === false && normalized.direction === "incoming" && normalized.event === "message.received") {
       const correlationId = `cpm_${result.message.id}`;
       await this.media.processMessageAttachments(result.message.id);
+      await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(result.conversation.id, result.message.id);
+      if (!(await this.messageHasUsableText(result.message.id))) {
+        const reason = "Skipped: message has no usable text for TinaBrain after media processing.";
+        await this.aiProcessing.markMessageUnusable(result.message.id, reason);
+        await this.markDelivery(delivery.id, "completed");
+        return result;
+      }
       const processingJob = await this.aiProcessing.createAndDispatch({
         customerId: result.customer.id,
         conversationId: result.conversation.id,
@@ -332,6 +339,14 @@ export class OpenwaService {
       mediaAttachments,
       recentMessages: recentMessages.reverse()
     };
+  }
+
+  private async messageHasUsableText(messageId: string): Promise<boolean> {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { body: true, caption: true, processedText: true }
+    });
+    return Boolean(message && [message.processedText, message.body, message.caption].some((value) => typeof value === "string" && value.trim().length > 0));
   }
 
   private publicBaseUrl(): string {

@@ -13,7 +13,7 @@ type DispatchInput = {
   payload: Record<string, unknown>;
 };
 
-type ProcessingStage = "job_started" | "tina_request" | "tina_response" | "openwa_send" | "job_completed";
+type ProcessingStage = "job_started" | "tina_request" | "tina_response" | "openwa_send" | "job_completed" | "message_superseded" | "message_unusable";
 
 @Injectable()
 export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
@@ -70,6 +70,10 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     if (!job) return;
     if (job.type !== "tinabrain_ai") return;
     if (job.status === "completed" || job.status === "processing") return;
+    if (!(await this.jobMessageHasUsableText(job.messageId))) {
+      await this.markJobSkipped(job.id, job.messageId, "Skipped: message has no usable text for TinaBrain.");
+      return;
+    }
 
     const attempts = job.attempts + 1;
     await this.prisma.processingJob.update({
@@ -86,7 +90,11 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const tinaResponse = await this.callTinaBrain(job);
-      const replies = extractReplies(tinaResponse);
+      await this.assertJobStillCurrent(job.id);
+      const replies = extractReplies(tinaResponse).slice(0, 1);
+      if (replies.length === 0) {
+        throw new StageError("tina_response", "TinaBrain returned no usable reply text.");
+      }
       const sentMessages = [];
       for (const text of replies) {
         if (!job.conversation) {
@@ -141,6 +149,10 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       });
       await this.markInboundMessage(job.messageId, "completed");
     } catch (error) {
+      if (error instanceof SupersededError) {
+        await this.markSuperseded(job.id, job.messageId, error.message);
+        return;
+      }
       const stage = error instanceof StageError ? error.stage : "tina_request";
       const message = error instanceof Error ? error.message : "Unknown TinaBrain processing error";
       const exhausted = attempts >= job.maxAttempts;
@@ -169,6 +181,39 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     });
     await this.dispatch(jobId);
     return this.prisma.processingJob.findUnique({ where: { id: jobId } });
+  }
+
+  async cancelOpenJobsForNewCustomerMessage(conversationId: string, newMessageId: string): Promise<number> {
+    const jobs = await this.prisma.processingJob.findMany({
+      where: {
+        type: "tinabrain_ai",
+        conversationId,
+        messageId: { not: newMessageId },
+        status: { in: ["queued", "processing", "retryable"] }
+      },
+      select: { id: true, messageId: true, result: true }
+    });
+    for (const job of jobs) {
+      await this.prisma.processingJob.update({
+        where: { id: job.id },
+        data: {
+          status: "cancelled",
+          lastError: "message_superseded: another customer message arrived before a reply was sent",
+          nextRunAt: null,
+          result: this.appendStage(job.result, "message_superseded", {
+            ok: false,
+            newMessageId,
+            reason: "Another customer message arrived before this job sent a reply."
+          })
+        }
+      });
+      await this.markInboundMessage(job.messageId, "superseded", "Not sent: another customer message arrived before Tina replied.");
+    }
+    return jobs.length;
+  }
+
+  async markMessageUnusable(messageId: string, reason: string): Promise<void> {
+    await this.markInboundMessage(messageId, "skipped", reason);
   }
 
   private async processDueJobs(): Promise<void> {
@@ -209,6 +254,28 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
         nextRunAt: new Date()
       }
     });
+  }
+
+  private async jobMessageHasUsableText(messageId: string | null): Promise<boolean> {
+    if (!messageId) return false;
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { body: true, caption: true, processedText: true }
+    });
+    return Boolean(message && [message.processedText, message.body, message.caption].some((value) => typeof value === "string" && value.trim().length > 0));
+  }
+
+  private async markJobSkipped(jobId: string, messageId: string | null, reason: string): Promise<void> {
+    await this.prisma.processingJob.update({
+      where: { id: jobId },
+      data: {
+        status: "skipped",
+        lastError: reason,
+        nextRunAt: null,
+        result: this.appendStage(await this.currentResult(jobId), "message_unusable", { ok: false, reason })
+      }
+    });
+    await this.markInboundMessage(messageId, "skipped", reason);
   }
 
   private async callTinaBrain(job: ProcessingJob): Promise<Record<string, unknown>> {
@@ -254,6 +321,43 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async assertJobStillCurrent(jobId: string): Promise<void> {
+    const job = await this.prisma.processingJob.findUnique({
+      where: { id: jobId },
+      include: { message: true }
+    });
+    if (!job || !job.messageId || !job.conversationId || !job.message) return;
+    if (job.status === "cancelled") {
+      throw new SupersededError("Not sent: another customer message arrived before Tina replied.");
+    }
+    const newerIncoming = await this.prisma.message.findFirst({
+      where: {
+        conversationId: job.conversationId,
+        direction: "incoming",
+        senderType: "customer",
+        createdAt: { gt: job.message.createdAt }
+      },
+      select: { id: true }
+    });
+    if (newerIncoming) {
+      throw new SupersededError("Not sent: another customer message arrived before Tina replied.");
+    }
+  }
+
+  private async markSuperseded(jobId: string, messageId: string | null, reason: string): Promise<void> {
+    const current = await this.currentResult(jobId);
+    await this.prisma.processingJob.update({
+      where: { id: jobId },
+      data: {
+        status: "cancelled",
+        lastError: `message_superseded: ${reason}`,
+        nextRunAt: null,
+        result: this.appendStage(current, "message_superseded", { ok: false, reason })
+      }
+    });
+    await this.markInboundMessage(messageId, "superseded", reason);
   }
 
   private async sendOpenwaText(sessionId: string | null, chatId: string, text: string): Promise<{ messageId: string | null; mocked: boolean; raw: unknown }> {
@@ -302,6 +406,8 @@ class StageError extends Error {
     super(message);
   }
 }
+
+class SupersededError extends Error {}
 
 function extractReplies(response: Record<string, unknown>): string[] {
   const reply = stringValue(response.reply);

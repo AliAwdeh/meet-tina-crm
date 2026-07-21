@@ -42,6 +42,7 @@ type Message = {
   messageType: string;
   status: string;
   n8nStatus: string;
+  failureReason: string | null;
   body: string | null;
   caption: string | null;
   processedText: string | null;
@@ -726,6 +727,7 @@ function MessageBubble({ message }: { message: Message }): JSX.Element {
     <div className={`bubble ${message.direction}`}>
       <span>{message.senderType} · {message.messageType} · {formatDate(message.receivedAt ?? message.sentAt ?? message.createdAt)}</span>
       <small>{message.status}{message.n8nStatus !== "not_queued" ? ` / n8n ${message.n8nStatus}` : ""}</small>
+      {message.failureReason && <small className="failure-reason">{message.failureReason}</small>}
       <p>{content}</p>
       {hasProcessedText && <pre className="message-analysis">{message.processedText}</pre>}
       {(message.mediaAttachments ?? []).map((attachment) => (

@@ -67,6 +67,20 @@ API_KEY=change-me OPENWA_WEBHOOK_SECRET=change-me docker compose up --build
 
 SQLite is persisted in the `sqlite-data` Docker volume.
 
+For production, the frontend API URL and dashboard API key must be provided before building the frontend image because Vite embeds `VITE_*` variables into the static JavaScript bundle:
+
+```bash
+API_KEY="your-backend-api-key" \
+VITE_API_KEY="your-backend-api-key" \
+CPM_PUBLIC_URL="https://cpm.meettina.net" \
+CPM_FRONTEND_URL="https://dashboard.meettina.net" \
+VITE_API_URL="https://cpm.meettina.net/api/v1" \
+OPENWA_WEBHOOK_SECRET="your-webhook-secret" \
+docker compose up --build
+```
+
+If the dashboard is still calling localhost after changing these values, rebuild the frontend container with `docker compose build --no-cache frontend`.
+
 ## API Authentication
 
 All API endpoints except `GET /api/v1/health` require:

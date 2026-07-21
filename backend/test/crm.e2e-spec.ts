@@ -125,7 +125,10 @@ describe("Meet Tina CRM", () => {
       body: ""
     })).expect(201);
 
-    const message = await prisma.message.findUniqueOrThrow({ where: { id: response.body.message.id } });
+    const message = await waitFor(
+      () => prisma.message.findUniqueOrThrow({ where: { id: response.body.message.id } }),
+      (entry) => entry.n8nStatus === "skipped"
+    );
     expect(message.body).toBeNull();
     expect(message.n8nStatus).toBe("skipped");
     expect(message.failureReason).toContain("no usable text");
@@ -144,17 +147,26 @@ describe("Meet Tina CRM", () => {
       body: "Actually, it is for appointments."
     })).expect(201);
 
-    const firstMessage = await prisma.message.findUniqueOrThrow({ where: { id: first.body.message.id } });
-    const secondMessage = await prisma.message.findUniqueOrThrow({ where: { id: second.body.message.id } });
-    const firstJob = await prisma.processingJob.findFirstOrThrow({ where: { messageId: first.body.message.id } });
-    const secondJob = await prisma.processingJob.findFirstOrThrow({ where: { messageId: second.body.message.id } });
+    const state = await waitFor(
+      async () => {
+        const [firstMessage, secondMessage, firstJob, secondJob] = await Promise.all([
+          prisma.message.findUniqueOrThrow({ where: { id: first.body.message.id } }),
+          prisma.message.findUniqueOrThrow({ where: { id: second.body.message.id } }),
+          prisma.processingJob.findFirst({ where: { messageId: first.body.message.id } }),
+          prisma.processingJob.findFirst({ where: { messageId: second.body.message.id } })
+        ]);
+        return { firstMessage, secondMessage, firstJob, secondJob };
+      },
+      (entry) => entry.firstMessage.n8nStatus === "superseded" && entry.firstJob?.status === "cancelled" && Boolean(entry.secondJob)
+    );
+    const { firstMessage, secondMessage, firstJob, secondJob } = state;
 
     expect(firstMessage.n8nStatus).toBe("superseded");
     expect(firstMessage.failureReason).toContain("another customer message");
-    expect(firstJob.status).toBe("cancelled");
-    expect(firstJob.lastError).toContain("message_superseded");
+    expect(firstJob?.status).toBe("cancelled");
+    expect(firstJob?.lastError).toContain("message_superseded");
     expect(secondMessage.n8nStatus).not.toBe("superseded");
-    expect(secondJob.id).not.toBe(firstJob.id);
+    expect(secondJob?.id).not.toBe(firstJob?.id);
   });
 
   it("processes outgoing OpenWA and manual messages, then returns chatbot context", async () => {
@@ -225,6 +237,21 @@ describe("Meet Tina CRM", () => {
     return response.body as { id: string };
   }
 });
+
+async function waitFor<T>(
+  getValue: () => Promise<T>,
+  isReady: (value: T) => boolean,
+  timeoutMs = 1500,
+  intervalMs = 25
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let latest = await getValue();
+  while (!isReady(latest) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    latest = await getValue();
+  }
+  return latest;
+}
 
 function n8nWrapper(body: unknown): Record<string, unknown> {
   return { headers: {}, params: {}, query: {}, body };

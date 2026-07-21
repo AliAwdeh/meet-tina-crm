@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { ProcessingJob } from "@prisma/client";
+import { Prisma, ProcessingJob } from "@prisma/client";
 import { stringifyJson } from "../../common/json.util";
 import { PrismaService } from "../../database/prisma.service";
 import { OpenwaClientService } from "../openwa/openwa-client.service";
@@ -37,28 +37,42 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  async createAndDispatch(input: DispatchInput): Promise<{ id: string; status: string; correlationId: string }> {
+  async createAndDispatch(input: DispatchInput): Promise<{ id: string; status: string; correlationId: string } | null> {
     const maxAttempts = numberFromEnv(
       this.config.get<string>("TINABRAIN_MAX_ATTEMPTS") ?? this.config.get<string>("N8N_MAX_ATTEMPTS"),
       5
     );
-    const job = await this.prisma.processingJob.create({
-      data: {
-        type: "tinabrain_ai",
-        status: "queued",
-        maxAttempts,
-        correlationId: input.correlationId,
-        customerId: input.customerId,
-        conversationId: input.conversationId,
-        messageId: input.messageId,
-        payload: stringifyJson({ ...input.payload, callbackUrl: null }, "{}"),
-        result: stringifyJson({ architecture: "tinabrain_direct", stages: [] }, "{}")
-      }
-    });
-    await this.dispatch(job.id);
+    const job = await this.prisma.processingJob
+      .create({
+        data: {
+          type: "tinabrain_ai",
+          status: "queued",
+          maxAttempts,
+          correlationId: input.correlationId,
+          customerId: input.customerId,
+          conversationId: input.conversationId,
+          messageId: input.messageId,
+          payload: stringifyJson({ ...input.payload, callbackUrl: null }, "{}"),
+          result: stringifyJson({ architecture: "tinabrain_direct", stages: [] }, "{}")
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") return null;
+        throw error;
+      });
+    if (!job) return null;
+    this.enqueueDispatch(job.id);
     return this.prisma.processingJob.findUniqueOrThrow({
       where: { id: job.id },
       select: { id: true, status: true, correlationId: true }
+    });
+  }
+
+  private enqueueDispatch(jobId: string): void {
+    setImmediate(() => {
+      void this.dispatch(jobId).catch((error: unknown) => {
+        this.logger.error(error instanceof Error ? error.message : "Queued AI dispatch failed");
+      });
     });
   }
 
@@ -69,7 +83,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!job) return;
     if (job.type !== "tinabrain_ai") return;
-    if (job.status === "completed" || job.status === "processing") return;
+    if (job.status !== "queued" && job.status !== "retryable") return;
     if (!(await this.jobMessageHasUsableText(job.messageId))) {
       await this.markJobSkipped(job.id, job.messageId, "Skipped: message has no usable text for TinaBrain.");
       return;
@@ -89,6 +103,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     await this.markInboundMessage(job.messageId, "processing");
 
     try {
+      await this.assertJobStillCurrent(job.id);
       const tinaResponse = await this.callTinaBrain(job);
       await this.assertJobStillCurrent(job.id);
       const replies = extractReplies(tinaResponse).slice(0, 1);
@@ -156,6 +171,8 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       const stage = error instanceof StageError ? error.stage : "tina_request";
       const message = error instanceof Error ? error.message : "Unknown TinaBrain processing error";
       const exhausted = attempts >= job.maxAttempts;
+      const currentJob = await this.prisma.processingJob.findUnique({ where: { id: job.id }, select: { status: true } });
+      if (!currentJob || currentJob.status === "cancelled") return;
       await this.prisma.processingJob.update({
         where: { id: job.id },
         data: {
@@ -194,7 +211,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, messageId: true, result: true }
     });
     for (const job of jobs) {
-      await this.prisma.processingJob.update({
+      const updated = await this.prisma.processingJob.updateMany({
         where: { id: job.id },
         data: {
           status: "cancelled",
@@ -207,6 +224,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
           })
         }
       });
+      if (updated.count === 0) continue;
       await this.markInboundMessage(job.messageId, "superseded", "Not sent: another customer message arrived before Tina replied.");
     }
     return jobs.length;
@@ -266,7 +284,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async markJobSkipped(jobId: string, messageId: string | null, reason: string): Promise<void> {
-    await this.prisma.processingJob.update({
+    const updated = await this.prisma.processingJob.updateMany({
       where: { id: jobId },
       data: {
         status: "skipped",
@@ -275,6 +293,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
         result: this.appendStage(await this.currentResult(jobId), "message_unusable", { ok: false, reason })
       }
     });
+    if (updated.count === 0) return;
     await this.markInboundMessage(messageId, "skipped", reason);
   }
 

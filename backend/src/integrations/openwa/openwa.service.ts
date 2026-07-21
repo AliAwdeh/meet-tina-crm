@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -11,6 +11,8 @@ import { OpenwaNormalizerService } from "./openwa-normalizer.service";
 
 @Injectable()
 export class OpenwaService {
+  private readonly logger = new Logger(OpenwaService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly normalizer: OpenwaNormalizerService,
@@ -146,28 +148,53 @@ export class OpenwaService {
     });
 
     if ("duplicate" in result && result.duplicate === false && normalized.direction === "incoming" && normalized.event === "message.received") {
-      const correlationId = `cpm_${result.message.id}`;
-      await this.media.processMessageAttachments(result.message.id);
-      await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(result.conversation.id, result.message.id);
-      if (!(await this.messageHasUsableText(result.message.id))) {
-        const reason = "Skipped: message has no usable text for TinaBrain after media processing.";
-        await this.aiProcessing.markMessageUnusable(result.message.id, reason);
-        await this.markDelivery(delivery.id, "completed");
-        return result;
-      }
-      const processingJob = await this.aiProcessing.createAndDispatch({
+      await this.markDelivery(delivery.id, "completed");
+      this.enqueueIncomingPostProcessing({
         customerId: result.customer.id,
         conversationId: result.conversation.id,
-        messageId: result.message.id,
-        correlationId,
-        payload: await this.buildN8nPayload(result.customer.id, result.conversation.id, result.message.id, correlationId)
+        messageId: result.message.id
       });
-      await this.markDelivery(delivery.id, "completed");
-      return { ...result, processingJob };
+      return result;
     }
 
     await this.markDelivery(delivery.id, "completed");
     return result;
+  }
+
+  private enqueueIncomingPostProcessing(input: { customerId: string; conversationId: string; messageId: string }): void {
+    setImmediate(() => {
+      void this.processIncomingAfterAck(input).catch(async (error: unknown) => {
+        const message = error instanceof Error ? error.message : "Unknown incoming post-processing error";
+        this.logger.error(`Incoming post-processing failed for message ${input.messageId}: ${message}`);
+        try {
+          await this.aiProcessing.markMessageUnusable(input.messageId, `Failed after OpenWA webhook ack: ${message}`);
+        } catch (markError) {
+          this.logger.error(markError instanceof Error ? markError.message : "Failed to mark post-processing error on message");
+        }
+      });
+    });
+  }
+
+  private async processIncomingAfterAck(input: { customerId: string; conversationId: string; messageId: string }): Promise<void> {
+    const correlationId = `cpm_${input.messageId}`;
+    const message = await this.prisma.message.findUnique({ where: { id: input.messageId }, select: { id: true } });
+    if (!message) return;
+    await this.media.processMessageAttachments(input.messageId);
+    await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(input.conversationId, input.messageId);
+    if (!(await this.messageHasUsableText(input.messageId))) {
+      const reason = "Skipped: message has no usable text for TinaBrain after media processing.";
+      await this.aiProcessing.markMessageUnusable(input.messageId, reason);
+      return;
+    }
+    const currentMessage = await this.prisma.message.findUnique({ where: { id: input.messageId }, select: { id: true } });
+    if (!currentMessage) return;
+    await this.aiProcessing.createAndDispatch({
+      customerId: input.customerId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      correlationId,
+      payload: await this.buildN8nPayload(input.customerId, input.conversationId, input.messageId, correlationId)
+    });
   }
 
   private async processAck(deliveryId: string, ack: OpenwaAckPayload): Promise<OpenwaProcessResult> {

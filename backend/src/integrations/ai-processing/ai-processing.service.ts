@@ -410,7 +410,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.message
       .update({
         where: { id: messageId },
-        data: { n8nStatus: status, failureReason }
+        data: { n8nStatus: status, failureReason: failureReason ?? null }
       })
       .catch(() => undefined);
   }

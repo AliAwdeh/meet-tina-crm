@@ -16,6 +16,7 @@ describe("Meet Tina CRM", () => {
   beforeAll(async () => {
     process.env.API_KEY = apiKey;
     process.env.OPENWA_WEBHOOK_SECRET = "test-webhook-secret";
+    process.env.OPENAI_API_KEY = "";
     process.env.IGNORE_GROUP_MESSAGES = "true";
     process.env.IGNORE_STATUS_BROADCASTS = "true";
 
@@ -133,6 +134,28 @@ describe("Meet Tina CRM", () => {
     expect(message.n8nStatus).toBe("skipped");
     expect(message.failureReason).toContain("no usable text");
     expect(await prisma.processingJob.count()).toBe(0);
+  });
+
+  it("recognizes embedded OpenWA image data as media", async () => {
+    const response = await openwaPost(openwaPayload({
+      id: "incoming-image",
+      idempotencyKey: "key-image",
+      body: "",
+      type: "unknown",
+      mimetype: "image/jpeg",
+      data: "/9j/4AAQSkZJRgABAQAAAQABAAD/2w=="
+    })).expect(201);
+
+    const attachment = await waitFor(
+      () => prisma.mediaAttachment.findFirst({ where: { messageId: response.body.message.id } }),
+      (entry) => Boolean(entry && entry.status !== "deferred")
+    );
+    const message = await prisma.message.findUniqueOrThrow({ where: { id: response.body.message.id } });
+
+    expect(message.messageType).toBe("image");
+    expect(attachment?.mediaType).toBe("image");
+    expect(attachment?.mimeType).toBe("image/jpeg");
+    expect(attachment?.status).toBe("ai_not_configured");
   });
 
   it("cancels older AI jobs when a newer customer message arrives first", async () => {
@@ -262,6 +285,9 @@ function openwaPayload(input: {
   idempotencyKey: string;
   body?: string;
   fromMe?: boolean;
+  type?: string;
+  mimetype?: string;
+  data?: string;
 }): Record<string, unknown> {
   const fromMe = input.fromMe ?? false;
   return {
@@ -276,7 +302,9 @@ function openwaPayload(input: {
       to: fromMe ? "102907500351574@lid" : "96171056438@c.us",
       chatId: "102907500351574@lid",
       body: input.body ?? "hi",
-      type: "text",
+      type: input.type ?? "text",
+      mimetype: input.mimetype,
+      data: input.data,
       timestamp: 1784498809,
       fromMe,
       isGroup: false,

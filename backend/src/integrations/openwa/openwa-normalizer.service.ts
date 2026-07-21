@@ -41,6 +41,10 @@ export class OpenwaNormalizerService {
     const lid = contactId?.endsWith("@lid") ? contactId : null;
     const phoneNumber = contactId?.endsWith("@c.us") ? normalizePhoneNumber(contactId) : null;
     const senderType = senderTypeValue(payload.senderType) ?? senderTypeValue(data.senderType) ?? (fromMe ? "bot" : "customer");
+    const media = record(data.media);
+    const mimetype = stringValue(data.mimetype) ?? stringValue(data.mimeType) ?? stringValue(media?.mimetype) ?? stringValue(media?.mimeType);
+    const messageType = normalizedMessageType(stringValue(data.type), mimetype);
+    const embeddedMediaData = stringValue(data.data) ?? stringValue(media?.data) ?? stringValue(media?.base64);
 
     return {
       event,
@@ -56,12 +60,12 @@ export class OpenwaNormalizerService {
       displayName,
       pushName,
       body: stringValue(data.body),
-      messageType: stringValue(data.type) ?? "text",
+      messageType,
       mediaUrl: stringValue(data.mediaUrl) ?? stringValue(data.fileUrl),
       caption: stringValue(data.caption),
-      mimetype: stringValue(data.mimetype) ?? stringValue(record(data.media)?.mimetype),
-      filename: stringValue(data.filename) ?? stringValue(record(data.media)?.filename),
-      hasMedia: booleanValue(data.hasMedia) || Boolean(data.mediaUrl || data.fileUrl || data.media),
+      mimetype,
+      filename: stringValue(data.filename) ?? stringValue(media?.filename),
+      hasMedia: booleanValue(data.hasMedia) || Boolean(data.mediaUrl || data.fileUrl || data.media || (embeddedMediaData && mimetype)),
       direction: fromMe ? "outgoing" : "incoming",
       senderType,
       isGroup: booleanValue(data.isGroup),
@@ -117,4 +121,12 @@ function dateFromOpenwa(value: unknown): Date | null {
 function senderTypeValue(value: unknown): "customer" | "bot" | "agent" | "system" | null {
   if (value === "customer" || value === "bot" || value === "agent" || value === "system") return value;
   return null;
+}
+
+function normalizedMessageType(type: string | null, mimetype: string | null): string {
+  if (type && type !== "unknown") return type;
+  if (mimetype?.startsWith("image/")) return "image";
+  if (mimetype?.startsWith("audio/")) return "voice";
+  if (mimetype === "application/pdf") return "document";
+  return type ?? "text";
 }

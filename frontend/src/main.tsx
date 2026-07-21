@@ -784,7 +784,9 @@ function mediaPreviewSrc(attachment: MediaAttachment): string | null {
   try {
     const raw = JSON.parse(attachment.rawPayload) as unknown;
     const record = recordValue(raw);
-    const data = recordValue(recordValue(record?.data)?.media)?.data ?? recordValue(record?.media)?.data;
+    const rawData = recordValue(record?.data);
+    const media = recordValue(rawData?.media) ?? recordValue(record?.media) ?? rawData ?? record;
+    const data = media?.data ?? media?.base64 ?? rawData?.mediaData ?? rawData?.fileData ?? record?.data;
     if (typeof data !== "string" || !data.trim()) return null;
     if (data.startsWith("data:")) return data;
     return `data:${cleanMimeType(attachment.mimeType) ?? "image/jpeg"};base64,${data}`;

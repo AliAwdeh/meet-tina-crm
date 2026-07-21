@@ -59,13 +59,10 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       .catch((error: unknown) => {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") return null;
         throw error;
-      });
+    });
     if (!job) return null;
     this.enqueueDispatch(job.id);
-    return this.prisma.processingJob.findUniqueOrThrow({
-      where: { id: job.id },
-      select: { id: true, status: true, correlationId: true }
-    });
+    return { id: job.id, status: job.status, correlationId: job.correlationId };
   }
 
   private enqueueDispatch(jobId: string): void {

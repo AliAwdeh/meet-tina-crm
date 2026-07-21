@@ -246,17 +246,26 @@ function mergeRawPayload(rawPayload: string, value: Record<string, unknown>): st
 
 function embeddedMediaFromRawPayload(attachment: MediaAttachment): { buffer: Buffer; filename: string; mimeType: string | null } | null {
   const raw = parseRawPayload(attachment.rawPayload);
-  const media = recordValue(recordValue(raw?.data)?.media) ?? recordValue(raw?.media);
+  const rawData = recordValue(raw?.data);
+  const media = recordValue(rawData?.media) ?? recordValue(raw?.media) ?? rawData ?? raw;
   const data =
     stringValue(media?.data) ??
     stringValue(media?.base64) ??
-    stringValue(recordValue(raw?.data)?.mediaData) ??
-    stringValue(recordValue(raw?.data)?.fileData);
+    stringValue(rawData?.mediaData) ??
+    stringValue(rawData?.fileData) ??
+    stringValue(raw?.data);
   if (!data) return null;
   const normalized = data.includes(",") ? data.split(",").pop() : data;
   if (!normalized) return null;
   try {
-    const mimeType = attachment.mimeType ?? stringValue(media?.mimetype) ?? stringValue(media?.mimeType);
+    const mimeType =
+      attachment.mimeType ??
+      stringValue(media?.mimetype) ??
+      stringValue(media?.mimeType) ??
+      stringValue(rawData?.mimetype) ??
+      stringValue(rawData?.mimeType) ??
+      stringValue(raw?.mimetype) ??
+      stringValue(raw?.mimeType);
     const filename = attachment.filename ?? stringValue(media?.filename) ?? `attachment${extensionForContentType(mimeType)}`;
     return { buffer: Buffer.from(normalized, "base64"), filename, mimeType };
   } catch {

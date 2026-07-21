@@ -87,8 +87,8 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const attempts = job.attempts + 1;
-    await this.prisma.processingJob.update({
-      where: { id: job.id },
+    const claimed = await this.prisma.processingJob.updateMany({
+      where: { id: job.id, status: { in: ["queued", "retryable"] } },
       data: {
         status: "processing",
         attempts: { increment: 1 },
@@ -97,6 +97,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
         result: this.appendStage(job.result, "job_started", { attempt: attempts })
       }
     });
+    if (claimed.count === 0) return;
     await this.markInboundMessage(job.messageId, "processing");
 
     try {
@@ -170,7 +171,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       const exhausted = attempts >= job.maxAttempts;
       const currentJob = await this.prisma.processingJob.findUnique({ where: { id: job.id }, select: { status: true } });
       if (!currentJob || currentJob.status === "cancelled") return;
-      await this.prisma.processingJob.update({
+      const updated = await this.prisma.processingJob.updateMany({
         where: { id: job.id },
         data: {
           status: exhausted ? "failed" : "retryable",
@@ -184,6 +185,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
           })
         }
       });
+      if (updated.count === 0) return;
       await this.markInboundMessage(job.messageId, exhausted ? "failed" : "retryable", message);
     }
   }

@@ -2,17 +2,29 @@ import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { json, urlencoded } from "express";
 import helmet from "helmet";
+import { IncomingMessage } from "node:http";
 import { AppModule } from "./app.module";
 import { ApiExceptionFilter } from "./common/api-exception.filter";
 import { sanitizeInput } from "./common/sanitize.middleware";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
   const config = app.get(ConfigService);
   const frontendUrl = config.get<string>("CPM_FRONTEND_URL") ?? config.get<string>("FRONTEND_URL") ?? "http://localhost:5173";
+  const bodyLimit = config.get<string>("REQUEST_BODY_LIMIT") ?? "10mb";
 
   app.use(helmet());
+  app.use(
+    json({
+      limit: bodyLimit,
+      verify: (request: IncomingMessage, _response, buffer) => {
+        (request as IncomingMessage & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+      }
+    })
+  );
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
   app.use(sanitizeInput);
   app.enableCors({
     origin: frontendUrl.split(",").map((url) => url.trim()),

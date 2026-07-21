@@ -133,7 +133,7 @@ describe("Meet Tina CRM", () => {
     expect(message.body).toBeNull();
     expect(message.n8nStatus).toBe("skipped");
     expect(message.failureReason).toContain("no usable text");
-    expect(await prisma.processingJob.count()).toBe(0);
+    expect(await prisma.processingJob.count({ where: { messageId: response.body.message.id } })).toBe(0);
   });
 
   it("recognizes embedded OpenWA image data as media", async () => {

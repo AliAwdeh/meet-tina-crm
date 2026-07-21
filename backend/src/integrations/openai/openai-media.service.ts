@@ -52,7 +52,7 @@ export class OpenaiMediaService {
     const buffer = input.buffer ?? (input.localPath ? await readFile(input.localPath) : null);
     if (!buffer) return { configured: true, text: null };
 
-    const mimeType = input.mimeType ?? "application/octet-stream";
+    const mimeType = cleanMimeType(input.mimeType) ?? "application/octet-stream";
     const filename = input.filename ?? (input.localPath ? basename(input.localPath) : "customer-document");
     const fileContent = mimeType.startsWith("image/")
       ? {

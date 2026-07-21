@@ -60,6 +60,7 @@ type MediaAttachment = {
   filename: string | null;
   sourceUrl: string | null;
   publicUrl: string | null;
+  rawPayload?: string;
   transcript: string | null;
   visionSummary: string | null;
   status: string;
@@ -730,14 +731,18 @@ function MessageBubble({ message }: { message: Message }): JSX.Element {
       {message.failureReason && <small className="failure-reason">{message.failureReason}</small>}
       <p>{content}</p>
       {hasProcessedText && <pre className="message-analysis">{message.processedText}</pre>}
-      {(message.mediaAttachments ?? []).map((attachment) => (
-        <div className="attachment" key={attachment.id}>
-          <span>{attachmentIcon(attachment)} {attachment.filename ?? attachment.mediaType} · {attachment.status}</span>
-          {attachment.transcript && <p>{attachment.transcript}</p>}
-          {attachment.visionSummary && <p>{attachment.visionSummary}</p>}
-          {(attachment.publicUrl || attachment.sourceUrl) && <a href={attachment.publicUrl ?? attachment.sourceUrl ?? "#"} target="_blank" rel="noreferrer">Open source</a>}
-        </div>
-      ))}
+      {(message.mediaAttachments ?? []).map((attachment) => {
+        const preview = mediaPreviewSrc(attachment);
+        return (
+          <div className="attachment" key={attachment.id}>
+            <span>{attachmentIcon(attachment)} {attachment.filename ?? attachment.mediaType} · {attachment.status}</span>
+            {preview && <img className="media-preview" src={preview} alt={attachment.filename ?? "Customer media"} />}
+            {attachment.transcript && <p>{attachment.transcript}</p>}
+            {attachment.visionSummary && <p>{attachment.visionSummary}</p>}
+            {(attachment.publicUrl || attachment.sourceUrl) && <a href={attachment.publicUrl ?? attachment.sourceUrl ?? "#"} target="_blank" rel="noreferrer">Open source</a>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -770,6 +775,22 @@ function attachmentIcon(attachment: MediaAttachment): JSX.Element {
     return <Mic size={14} />;
   }
   return <FileText size={14} />;
+}
+
+function mediaPreviewSrc(attachment: MediaAttachment): string | null {
+  if (!attachment.mimeType?.startsWith("image/")) return null;
+  if (attachment.publicUrl || attachment.sourceUrl) return attachment.publicUrl ?? attachment.sourceUrl;
+  if (!attachment.rawPayload) return null;
+  try {
+    const raw = JSON.parse(attachment.rawPayload) as unknown;
+    const record = recordValue(raw);
+    const data = recordValue(recordValue(record?.data)?.media)?.data ?? recordValue(record?.media)?.data;
+    if (typeof data !== "string" || !data.trim()) return null;
+    if (data.startsWith("data:")) return data;
+    return `data:${cleanMimeType(attachment.mimeType) ?? "image/jpeg"};base64,${data}`;
+  } catch {
+    return null;
+  }
 }
 
 type ConversationTimelineItem =
@@ -858,6 +879,10 @@ function parseJson(value: string | null | undefined): Record<string, unknown> | 
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function cleanMimeType(value: string | null): string | null {
+  return value?.split(";")[0]?.trim() || value;
 }
 
 function formatJson(value: unknown): string {

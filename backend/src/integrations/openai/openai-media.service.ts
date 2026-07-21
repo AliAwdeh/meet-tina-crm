@@ -25,15 +25,25 @@ export class OpenaiMediaService {
     const client = this.client();
     if (!client) return { configured: false, text: null };
     const mediaInput = typeof input === "string" ? { localPath: input } : input;
-    const file =
-      mediaInput.buffer
-        ? await toFile(mediaInput.buffer, mediaInput.filename ?? "voice-message", { type: mediaInput.mimeType ?? undefined })
-        : createReadStream(mediaInput.localPath ?? "");
-    const response = await client.audio.transcriptions.create({
-      file,
-      model: this.config.get<string>("OPENAI_TRANSCRIPTION_MODEL") ?? "gpt-4o-transcribe"
-    });
-    return { configured: true, text: response.text ?? null };
+    const models = uniqueModels([
+      this.config.get<string>("OPENAI_TRANSCRIPTION_MODEL"),
+      "gpt-4o-mini-transcribe",
+      "whisper-1"
+    ]);
+    let lastError: unknown;
+    for (const model of models) {
+      try {
+        const file =
+          mediaInput.buffer
+            ? await toFile(mediaInput.buffer, mediaInput.filename ?? "voice-message", { type: cleanMimeType(mediaInput.mimeType) ?? undefined })
+            : createReadStream(mediaInput.localPath ?? "");
+        const response = await client.audio.transcriptions.create({ file, model });
+        return { configured: true, text: response.text ?? null };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
   }
 
   async analyzeMedia(input: MediaInput): Promise<{ configured: boolean; text: string | null }> {
@@ -103,4 +113,13 @@ function realValue(value: string | undefined | null): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed && trimmed !== "change-me" && trimmed !== "..." ? trimmed : null;
+}
+
+function uniqueModels(values: Array<string | undefined | null>): string[] {
+  return Array.from(new Set(values.map((value) => realValue(value)).filter((value): value is string => Boolean(value))));
+}
+
+function cleanMimeType(value: string | undefined | null): string | null {
+  const cleaned = realValue(value);
+  return cleaned?.split(";")[0]?.trim() || cleaned;
 }

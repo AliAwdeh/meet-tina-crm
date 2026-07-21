@@ -63,7 +63,8 @@ export class MediaService {
           data: {
             transcript: result.text,
             status: result.configured ? "completed" : "ai_not_configured",
-            sizeBytes: attachment.sizeBytes ?? media.buffer.length
+            sizeBytes: attachment.sizeBytes ?? media.buffer.length,
+            rawPayload: clearMediaProcessingError(attachment.rawPayload)
           }
         });
       }
@@ -80,14 +81,19 @@ export class MediaService {
           data: {
             visionSummary: result.text,
             status: result.configured ? "completed" : "ai_not_configured",
-            sizeBytes: attachment.sizeBytes ?? media.buffer.length
+            sizeBytes: attachment.sizeBytes ?? media.buffer.length,
+            rawPayload: clearMediaProcessingError(attachment.rawPayload)
           }
         });
       }
 
       return this.prisma.mediaAttachment.update({
         where: { id: attachment.id },
-        data: { status: "unsupported", sizeBytes: attachment.sizeBytes ?? media.buffer.length }
+        data: {
+          status: "unsupported",
+          sizeBytes: attachment.sizeBytes ?? media.buffer.length,
+          rawPayload: clearMediaProcessingError(attachment.rawPayload)
+        }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown media processing error";
@@ -242,6 +248,20 @@ function mergeRawPayload(rawPayload: string, value: Record<string, unknown>): st
     // Keep going with a structured fallback.
   }
   return JSON.stringify(value);
+}
+
+function clearMediaProcessingError(rawPayload: string): string {
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const next = { ...(parsed as Record<string, unknown>) };
+      delete next.mediaProcessingError;
+      return JSON.stringify(next);
+    }
+  } catch {
+    // Keep the original raw payload if it cannot be parsed.
+  }
+  return rawPayload;
 }
 
 function embeddedMediaFromRawPayload(attachment: MediaAttachment): { buffer: Buffer; filename: string; mimeType: string | null } | null {

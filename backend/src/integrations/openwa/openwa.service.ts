@@ -182,7 +182,10 @@ export class OpenwaService {
     await this.media.processMessageAttachments(input.messageId);
     await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(input.conversationId, input.messageId);
     if (!(await this.messageHasUsableText(input.messageId))) {
-      const reason = "Skipped: message has no usable text for TinaBrain after media processing.";
+      const mediaFailure = await this.mediaProcessingFailureReason(input.messageId);
+      const reason = mediaFailure
+        ? `Skipped: media processing failed before TinaBrain. ${mediaFailure}`
+        : "Skipped: message has no usable text for TinaBrain after media processing.";
       await this.aiProcessing.markMessageUnusable(input.messageId, reason);
       return;
     }
@@ -376,6 +379,22 @@ export class OpenwaService {
     return Boolean(message && [message.processedText, message.body, message.caption].some((value) => typeof value === "string" && value.trim().length > 0));
   }
 
+  private async mediaProcessingFailureReason(messageId: string): Promise<string | null> {
+    const attachments = await this.prisma.mediaAttachment.findMany({
+      where: { messageId, status: "failed" },
+      select: { mediaType: true, mimeType: true, rawPayload: true },
+      orderBy: { createdAt: "asc" }
+    });
+    const reasons = attachments
+      .map((attachment) => {
+        const detail = mediaProcessingError(attachment.rawPayload);
+        const kind = attachment.mimeType ?? attachment.mediaType;
+        return detail ? `${kind}: ${detail}` : `${kind}: unknown media processing error`;
+      })
+      .filter((entry) => entry.trim().length > 0);
+    return reasons.length > 0 ? reasons.join("; ") : null;
+  }
+
   private publicBaseUrl(): string {
     return (this.config.get<string>("CPM_PUBLIC_URL") ?? `http://localhost:${this.config.get<string>("PORT") ?? 3000}`).replace(/\/+$/u, "");
   }
@@ -425,6 +444,19 @@ function safeHeaders(headers: Record<string, string | string[] | undefined> | un
 function fallbackIdempotencyKey(event: NormalizedOpenwaEvent): string {
   const messageId = isAck(event) ? event.externalMessageId : event.externalMessageId;
   return `${event.event}_${event.sessionId ?? "unknown"}_${messageId ?? event.deliveryId ?? Date.now()}`;
+}
+
+function mediaProcessingError(rawPayload: string): string | null {
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const value = (parsed as Record<string, unknown>).mediaProcessingError;
+      return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function realValue(value: string | undefined | null): string | null {

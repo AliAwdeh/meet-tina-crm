@@ -16,6 +16,7 @@ type Customer = {
   email: string | null;
   company: string | null;
   jobTitle: string | null;
+  wantedService: string | null;
   country: string | null;
   city: string | null;
   status: string;
@@ -281,6 +282,7 @@ function CustomerDetail(): JSX.Element {
         email: next.email,
         company: next.company,
         jobTitle: next.jobTitle,
+        wantedService: next.wantedService,
         country: next.country,
         city: next.city,
         status: next.status,
@@ -345,6 +347,7 @@ function ProfileEditor({ customer, setCustomer }: { customer: Customer; setCusto
         <Input label="Email" value={customer.email} onChange={(value) => update("email", value)} />
         <Input label="Company" value={customer.company} onChange={(value) => update("company", value)} />
         <Input label="Job title" value={customer.jobTitle} onChange={(value) => update("jobTitle", value)} />
+        <Input label="Wanted service" value={customer.wantedService} onChange={(value) => update("wantedService", value)} />
         <Input label="Country" value={customer.country} onChange={(value) => update("country", value)} />
         <Input label="City" value={customer.city} onChange={(value) => update("city", value)} />
         <label>

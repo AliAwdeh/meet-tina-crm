@@ -3,6 +3,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 frontend/vite.config.js
 frontend/vite.config.d.ts
 

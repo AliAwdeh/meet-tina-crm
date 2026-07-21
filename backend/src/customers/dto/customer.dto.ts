@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from "@nestjs/swagger";
+import { ApiPropertyOptional, PartialType } from "@nestjs/swagger";
 import { Transform, Type } from "class-transformer";
 import {
   IsArray,
@@ -67,6 +67,11 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   jobTitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  wantedService?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -162,9 +167,10 @@ export class LookupCustomerQueryDto {
 }
 
 export class ProfileSummaryDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  freeTextProfile!: string;
+  freeTextProfile?: string;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
@@ -176,6 +182,11 @@ export class ProfileSummaryDto {
   @IsOptional()
   @IsIn(CUSTOMER_STATUSES)
   status?: CustomerStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  wantedService?: string;
 }
 
 export class CustomerContextQueryDto {

@@ -20,6 +20,7 @@ model Customer {
   email           String?
   company         String?
   jobTitle        String?
+  wantedService   String?
   country         String?
   city            String?
   source          String?

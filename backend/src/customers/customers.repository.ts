@@ -61,6 +61,7 @@ export class CustomersRepository {
         { whatsappId: { contains: search } },
         { email: { contains: search } },
         { company: { contains: search } },
+        { wantedService: { contains: search } },
         { interests: { contains: search } },
         { freeTextProfile: { contains: search } },
         { internalNotes: { contains: search } }

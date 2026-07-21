@@ -101,7 +101,15 @@ export class CustomersService {
   async context(customerId: string, messageLimit: number): Promise<{
     customer: Pick<
       CustomerView,
-      "id" | "displayName" | "phoneNumber" | "whatsappId" | "status" | "interests" | "freeTextProfile" | "internalNotes"
+      | "id"
+      | "displayName"
+      | "phoneNumber"
+      | "whatsappId"
+      | "status"
+      | "wantedService"
+      | "interests"
+      | "freeTextProfile"
+      | "internalNotes"
     >;
     attributes: Record<string, unknown>;
     recentMessages: Array<{
@@ -127,6 +135,7 @@ export class CustomersService {
         phoneNumber: customer.phoneNumber,
         whatsappId: customer.whatsappId,
         status: customer.status,
+        wantedService: customer.wantedService,
         interests: customer.interests,
         freeTextProfile: customer.freeTextProfile,
         internalNotes: customer.internalNotes
@@ -146,7 +155,8 @@ export class CustomersService {
     const customer = await this.customers.update(customerId, {
       freeTextProfile: dto.freeTextProfile,
       interests: dto.interests ? stringifyJson(dto.interests, "[]") : undefined,
-      status: dto.status
+      status: dto.status,
+      wantedService: dto.wantedService
     });
     return toCustomerView(customer);
   }
@@ -173,6 +183,7 @@ export class CustomersService {
       email: dto.email,
       company: dto.company,
       jobTitle: dto.jobTitle,
+      wantedService: dto.wantedService,
       country: dto.country,
       city: dto.city,
       source: dto.source,
@@ -197,6 +208,7 @@ export class CustomersService {
       email: dto.email,
       company: dto.company,
       jobTitle: dto.jobTitle,
+      wantedService: dto.wantedService,
       country: dto.country,
       city: dto.city,
       source: dto.source,

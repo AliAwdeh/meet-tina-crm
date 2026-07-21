@@ -6,6 +6,7 @@ A complete but intentionally simple CRM for Meet Tina. It stores customers, flex
 
 - `backend/`: NestJS, TypeScript, Prisma ORM, SQLite, REST API, Swagger, API-key auth.
 - `frontend/`: React, Vite, TypeScript dashboard.
+- `tinabrain/`: separate Python LangGraph/LangChain chatbot service that talks to CPM through REST APIs.
 - `docker-compose.yml`: backend, frontend, and persistent SQLite volume.
 
 SQLite JSON-shaped fields are stored as serialized JSON strings so the application stays portable. When moving to PostgreSQL, those fields can become native `Json` columns with minimal service changes.
@@ -99,7 +100,7 @@ when `OPENWA_WEBHOOK_SECRET` is configured to a real value.
 
 ## Key Models
 
-- `Customer`: profile, identifiers, interests, profile summary, internal notes, metadata.
+- `Customer`: profile, identifiers, wanted service, interests, profile summary, internal notes, metadata.
 - `CustomerAttribute`: flexible key-value customer facts, unique by `customerId + key`.
 - `Conversation`: WhatsApp conversation container per customer/chat/session.
 - `Message`: incoming/outgoing message with OpenWA IDs, idempotency keys, and raw payload.
@@ -239,6 +240,44 @@ Gateway endpoints:
 - `POST /api/v1/conversations/:id/send`.
 
 Required production variables are listed in `backend/.env.example`. When `N8N_AI_WEBHOOK_URL`, `OPENWA_API_KEY`, or `OPENAI_API_KEY` are unset or left as `change-me`, CPM records mocked/deferred states instead of calling those external services.
+
+## TinaBrain
+
+`tinabrain/` is a separate Python LangGraph/LangChain service for chatbot reasoning and CRM tooling. It loads its main prompt from `tinabrain/prompts/main_chatbot.md`, builds conversation history from CPM context, and uses tools that call CPM APIs to update profile fields, `wantedService`, custom attributes, statuses, interests, and internal notes.
+
+Run with the existing conda environment:
+
+```bash
+conda activate langgraph
+cd tinabrain
+pip install -r requirements.txt
+cp .env.example .env
+python run.py
+```
+
+Health:
+
+```bash
+curl http://localhost:8010/health
+```
+
+To route CPM AI jobs directly to TinaBrain, set CPM:
+
+```env
+N8N_AI_WEBHOOK_URL=http://tinabrain-lan-host:8010/webhooks/cpm
+N8N_OUTBOUND_API_KEY=your-cpm-to-tinabrain-secret
+N8N_AI_CALLBACK_SECRET=your-cpm-callback-secret
+```
+
+Then set TinaBrain:
+
+```env
+CPM_API_BASE_URL=https://cpm.meettina.net/api/v1
+CPM_API_KEY=your-cpm-api-key
+CPM_CALLBACK_SECRET=your-cpm-callback-secret
+TINABRAIN_INBOUND_API_KEY=your-cpm-to-tinabrain-secret
+OPENAI_API_KEY=your-openai-api-key
+```
 
 ## Example Curl
 

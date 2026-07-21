@@ -40,7 +40,7 @@ export class ProcessingJobsService {
 
   async retry(id: string): Promise<unknown> {
     const job = (await this.findOne(id)) as { type?: string };
-    if (job.type === "tinabrain_ai") {
+    if (job.type === "tinabrain_ai" || job.type === "n8n_ai") {
       return this.aiProcessing.retry(id);
     }
     return this.n8n.retry(id);

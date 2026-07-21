@@ -165,7 +165,7 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
   async retry(jobId: string): Promise<unknown> {
     await this.prisma.processingJob.update({
       where: { id: jobId },
-      data: { status: "queued", nextRunAt: null, lastError: null, completedAt: null }
+      data: { type: "tinabrain_ai", status: "queued", nextRunAt: null, lastError: null, completedAt: null }
     });
     await this.dispatch(jobId);
     return this.prisma.processingJob.findUnique({ where: { id: jobId } });

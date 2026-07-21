@@ -141,7 +141,6 @@ function App(): JSX.Element {
             <Link to="/">Dashboard</Link>
             <Link to="/customers">Customers</Link>
             <Link to="/conversations">Conversations</Link>
-            <Link to="/tool-calls">Tool calls</Link>
             <Link to="/processing-jobs">Processing jobs</Link>
           </nav>
         </aside>
@@ -151,7 +150,6 @@ function App(): JSX.Element {
             <Route path="/customers" element={<CustomerList />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/conversations" element={<Conversations />} />
-            <Route path="/tool-calls" element={<ToolCalls />} />
             <Route path="/processing-jobs" element={<ProcessingJobs />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -191,7 +189,6 @@ function Dashboard(): JSX.Element {
         </div>
         <div className="header-actions">
           <Link className="button" to="/conversations"><MessageSquare size={16} /> Conversations</Link>
-          <Link className="button" to="/tool-calls"><Wrench size={16} /> Tools</Link>
           <Link className="button" to="/processing-jobs"><Activity size={16} /> Jobs</Link>
           <Link className="button primary" to="/customers"><Search size={16} /> Customers</Link>
         </div>
@@ -649,62 +646,6 @@ function Conversations(): JSX.Element {
             <p>No conversations yet.</p>
           )}
         </section>
-      </div>
-    </section>
-  );
-}
-
-function ToolCalls(): JSX.Element {
-  const [jobs, setJobs] = React.useState<ProcessingJob[]>([]);
-  const [error, setError] = React.useState("");
-
-  const load = React.useCallback(() => {
-    request<ProcessingJob[]>("/processing-jobs")
-      .then((body) => {
-        setJobs(body);
-        setError("");
-      })
-      .catch((err: Error) => setError(err.message));
-  }, []);
-
-  React.useEffect(load, [load]);
-  React.useEffect(() => {
-    const timer = window.setInterval(load, 5000);
-    return () => window.clearInterval(timer);
-  }, [load]);
-
-  const rows = jobs.flatMap((job) => extractToolCalls(job).map((call, index) => ({ ...call, key: `${job.id}-${index}`, job })));
-
-  return (
-    <section className="page">
-      <div className="page-header">
-        <div>
-          <h1>Tool calls</h1>
-          <p>CRM writes and TinaBrain tool results captured from processing jobs.</p>
-        </div>
-        <button className="icon-button" title="Refresh" onClick={load}><RefreshCw size={16} /></button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <div className="tool-call-grid">
-        {rows.map((row) => (
-          <article className="tool-card" key={row.key}>
-            <div className="tool-card-header">
-              <span className="status">{row.name}</span>
-              <small>{formatDate(row.job.updatedAt ?? row.job.createdAt)}</small>
-            </div>
-            <strong>{row.job.customer?.displayName ?? row.job.customer?.whatsappId ?? "Unknown customer"}</strong>
-            <p>{row.job.message?.processedText ?? row.job.message?.body ?? row.job.message?.messageType ?? "-"}</p>
-            <details>
-              <summary>Arguments</summary>
-              <pre>{formatJson(row.args)}</pre>
-            </details>
-            <details>
-              <summary>Result</summary>
-              <pre>{formatJson(row.result)}</pre>
-            </details>
-          </article>
-        ))}
-        {rows.length === 0 && <p>No tool calls captured yet.</p>}
       </div>
     </section>
   );

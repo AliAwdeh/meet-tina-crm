@@ -398,7 +398,6 @@ label {
 }
 
 .message-analysis,
-.tool-card pre,
 .tool-bubble pre {
   background: #101816;
   border-radius: 6px;
@@ -465,38 +464,6 @@ label {
 .compact-error {
   margin-top: 10px;
   padding: 8px 10px;
-}
-
-.tool-call-grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-}
-
-.tool-card {
-  background: #fff;
-  border: 1px solid #dce3dd;
-  border-radius: 8px;
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-}
-
-.tool-card-header {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.tool-card details {
-  border-top: 1px solid #edf1ee;
-  padding-top: 8px;
-}
-
-.tool-card summary {
-  cursor: pointer;
-  font-weight: 650;
 }
 
 .success,

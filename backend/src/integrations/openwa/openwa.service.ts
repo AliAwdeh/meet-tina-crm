@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -159,6 +159,65 @@ export class OpenwaService {
 
     await this.markDelivery(delivery.id, "completed");
     return result;
+  }
+
+  async retryIncomingMessage(messageId: string): Promise<{ id: string; status: string; correlationId: string } | null> {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        customerId: true,
+        conversationId: true,
+        direction: true,
+        createdAt: true
+      }
+    });
+    if (!message) {
+      throw new BadRequestException({ code: "MESSAGE_NOT_FOUND", message: "Message was not found." });
+    }
+    if (message.direction !== "incoming") {
+      throw new BadRequestException({
+        code: "MESSAGE_RETRY_NOT_INCOMING",
+        message: "Only incoming customer messages can be retried through TinaBrain."
+      });
+    }
+
+    const newerIncoming = await this.prisma.message.findFirst({
+      where: {
+        conversationId: message.conversationId,
+        direction: "incoming",
+        createdAt: { gt: message.createdAt },
+        id: { not: message.id }
+      },
+      select: { id: true },
+      orderBy: { createdAt: "asc" }
+    });
+    if (newerIncoming) {
+      throw new BadRequestException({
+        code: "MESSAGE_RETRY_SUPERSEDED",
+        message: "This incoming message cannot be retried because a newer customer message already arrived."
+      });
+    }
+
+    await this.media.processMessageAttachments(message.id);
+    if (!(await this.messageHasUsableText(message.id))) {
+      const mediaFailure = await this.mediaProcessingFailureReason(message.id);
+      const reason = mediaFailure
+        ? `Skipped: media processing failed before TinaBrain. ${mediaFailure}`
+        : "Skipped: message has no usable text for TinaBrain after media processing.";
+      await this.aiProcessing.markMessageUnusable(message.id, reason);
+      throw new BadRequestException({ code: "MESSAGE_RETRY_UNUSABLE", message: reason });
+    }
+
+    await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(message.conversationId, message.id);
+    const correlationId = `cpm_retry_${message.id}_${Date.now()}`;
+    return this.aiProcessing.createAndDispatch({
+      customerId: message.customerId,
+      conversationId: message.conversationId,
+      messageId: message.id,
+      correlationId,
+      payload: await this.buildN8nPayload(message.customerId, message.conversationId, message.id, correlationId)
+    });
   }
 
   private enqueueIncomingPostProcessing(input: { customerId: string; conversationId: string; messageId: string }): void {

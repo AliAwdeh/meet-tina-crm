@@ -5,6 +5,7 @@ import { ConversationsService } from "../conversations/conversations.service";
 import { CustomersService } from "../customers/customers.service";
 import { PrismaService } from "../database/prisma.service";
 import { OpenwaClientService } from "../integrations/openwa/openwa-client.service";
+import { OpenwaService } from "../integrations/openwa/openwa.service";
 import { CreateMessageDto, MessageListQueryDto, SendConversationMessageDto } from "./dto/message.dto";
 
 @Injectable()
@@ -13,7 +14,8 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
     private readonly conversations: ConversationsService,
-    private readonly openwa: OpenwaClientService
+    private readonly openwa: OpenwaClientService,
+    private readonly openwaGateway: OpenwaService
   ) {}
 
   async create(dto: CreateMessageDto): Promise<{ duplicate: boolean; message: Message }> {
@@ -114,13 +116,16 @@ export class MessagesService {
     }
   }
 
-  async retry(id: string): Promise<Message> {
+  async retry(id: string): Promise<unknown> {
     const message = await this.prisma.message.findUnique({
       where: { id },
       include: { conversation: { include: { customer: true } } }
     });
     if (!message) {
       throw new NotFoundException({ code: "MESSAGE_NOT_FOUND", message: "Message was not found." });
+    }
+    if (message.direction === "incoming") {
+      return this.openwaGateway.retryIncomingMessage(message.id);
     }
     if (message.direction !== "outgoing" || !message.body) {
       throw new BadRequestException({

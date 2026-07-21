@@ -158,6 +158,37 @@ describe("Meet Tina CRM", () => {
     expect(attachment?.status).toBe("ai_not_configured");
   });
 
+  it("retries an incoming message once media processing produces usable text", async () => {
+    const response = await openwaPost(openwaPayload({
+      id: "incoming-retry-media",
+      idempotencyKey: "key-retry-media",
+      body: ""
+    })).expect(201);
+
+    await waitFor(
+      () => prisma.message.findUniqueOrThrow({ where: { id: response.body.message.id } }),
+      (entry) => entry.n8nStatus === "skipped"
+    );
+    await prisma.message.update({
+      where: { id: response.body.message.id },
+      data: {
+        processedText: "Customer sent this image. AI analysis: they are asking about chatbot services.",
+        failureReason: "Previous media processing failure.",
+        n8nStatus: "skipped"
+      }
+    });
+
+    const retry = await api().post(`/api/v1/messages/${response.body.message.id}/retry`).expect(201);
+    expect(retry.body.id).toBeTruthy();
+    expect(retry.body.status).toBe("queued");
+
+    const job = await waitFor(
+      () => prisma.processingJob.findFirst({ where: { messageId: response.body.message.id } }),
+      (entry) => Boolean(entry)
+    );
+    expect(job?.type).toBe("tinabrain_ai");
+  });
+
   it("cancels older AI jobs when a newer customer message arrives first", async () => {
     const first = await openwaPost(openwaPayload({
       id: "incoming-superseded-1",

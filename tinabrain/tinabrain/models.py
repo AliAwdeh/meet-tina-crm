@@ -28,6 +28,7 @@ class BrainResponse(BaseModel):
     customerId: str
     conversationId: str | None = None
     reply: str | None = None
+    intentContext: str | None = None
     toolCalls: list[dict[str, Any]] = Field(default_factory=list)
     callbackResult: dict[str, Any] | None = None
     n8nResult: dict[str, Any] | None = None

@@ -21,6 +21,8 @@ class BrainState(TypedDict, total=False):
     callback_url: str | None
     context: dict[str, Any]
     messages: list[BaseMessage]
+    intent_context: str | None
+    user_context: str
     tool_rounds: int
     tool_calls: list[dict[str, Any]]
     reply: str | None
@@ -39,6 +41,11 @@ class TinaBrainGraph:
             temperature=settings.tinabrain_temperature,
             api_key=settings.openai_api_key,
         ).bind_tools(self.tools)
+        self.intent_llm = ChatOpenAI(
+            model=settings.tinabrain_intent_model or settings.tinabrain_model,
+            temperature=0,
+            api_key=settings.openai_api_key,
+        )
         self.fallback_prompt = load_main_prompt()
         self.graph = self._compile()
 
@@ -63,10 +70,12 @@ class TinaBrainGraph:
     def _compile(self):
         workflow = StateGraph(BrainState)
         workflow.add_node("load_context", self._load_context)
+        workflow.add_node("classify_intent", self._classify_intent)
         workflow.add_node("maybe_handoff", self._maybe_handoff)
         workflow.add_node("agent", self._agent)
         workflow.add_node("tools", self._tools)
-        workflow.add_edge("load_context", "maybe_handoff")
+        workflow.add_edge("load_context", "classify_intent")
+        workflow.add_edge("classify_intent", "maybe_handoff")
         workflow.add_conditional_edges("maybe_handoff", self._route_after_handoff, {"agent": "agent", "end": END})
         workflow.add_conditional_edges("agent", self._route_after_agent, {"tools": "tools", "end": END})
         workflow.add_edge("tools", "agent")
@@ -111,18 +120,56 @@ class TinaBrainGraph:
         return {
             **state,
             "context": context,
+            "user_context": user_content,
             "messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_content)],
         }
 
     async def _load_system_prompt(self) -> str:
+        return await self._load_prompt_content("sales.main_system", self.fallback_prompt)
+
+    async def _load_intent_prompt(self) -> str:
+        return await self._load_prompt_content("classification.intent", intent_classifier_fallback_prompt())
+
+    async def _load_prompt_content(self, key: str, fallback: str) -> str:
         try:
-            prompt = await self.cpm.get_active_prompt("sales.main_system")
+            prompt = await self.cpm.get_active_prompt(key)
             content = prompt.get("content")
             if isinstance(content, str) and content.strip():
                 return content
         except Exception:
-            return self.fallback_prompt
-        return self.fallback_prompt
+            return fallback
+        return fallback
+
+    async def _classify_intent(self, state: BrainState) -> BrainState:
+        user_context = state.get("user_context") or ""
+        if not user_context.strip():
+            return state
+        try:
+            intent_prompt = await self._load_intent_prompt()
+            response = await self.intent_llm.ainvoke(
+                [
+                    SystemMessage(content=intent_prompt),
+                    HumanMessage(content=user_context),
+                ]
+            )
+            intent_context = stringify_content(response.content)
+            if not intent_context:
+                return state
+        except Exception:
+            return state
+
+        messages = list(state["messages"])
+        if len(messages) >= 2 and isinstance(messages[1], HumanMessage):
+            messages[1] = HumanMessage(
+                content="\n\n".join(
+                    [
+                        state.get("user_context") or stringify_content(messages[1].content),
+                        "Intent classifier analysis for Tina (internal guidance, not customer-facing):",
+                        intent_context,
+                    ]
+                )
+            )
+        return {**state, "intent_context": intent_context, "messages": messages}
 
     async def _maybe_handoff(self, state: BrainState) -> BrainState:
         if self.settings.n8n_mode != "always":
@@ -202,3 +249,33 @@ def stringify_tool_result(result: Any) -> str:
     if isinstance(result, str):
         return result
     return repr(result)
+
+
+def intent_classifier_fallback_prompt() -> str:
+    return """You are Tina's internal intent classifier for Meet Tina.
+
+Your job is not to reply to the customer. Your job is to help the main sales assistant understand what the customer likely means and what direction would help them.
+
+Classify the latest customer intent using the full context you receive, including normal text, voice transcription, image analysis, document analysis, and recent conversation history.
+
+Use practical sales and business judgment. Consider intents such as:
+- exploring Meet Tina services
+- pricing or budget discussion
+- booking a demo or consultation
+- asking what Tina can do
+- describing a business problem
+- sending business requirements
+- asking technical/integration questions
+- support or troubleshooting
+- objection, hesitation, or trust concern
+- irrelevant, unclear, or casual message
+
+Return concise internal guidance in plain text with:
+- Primary intent
+- What the customer likely means
+- Helpful direction for the main reply
+- Useful missing information to ask for
+- Sales stage signal
+- Urgency or risk if visible
+
+Do not invent facts. Do not write the customer-facing answer. Do not expose this classifier analysis."""

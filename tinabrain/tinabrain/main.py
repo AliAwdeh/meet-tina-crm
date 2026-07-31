@@ -77,6 +77,7 @@ async def run_brain(payload: dict[str, Any]) -> BrainResponse:
         customerId=state["customer_id"],
         conversationId=state.get("conversation_id"),
         reply=reply,
+        intentContext=state.get("intent_context"),
         toolCalls=state.get("tool_calls", []),
         callbackResult=callback_result,
         n8nResult=state.get("n8n_result"),

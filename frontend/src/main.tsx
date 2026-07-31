@@ -177,6 +177,22 @@ type PromptTestResult = {
   destructiveToolsExecuted: boolean;
 };
 
+type GraphNode = {
+  id: string;
+  label: string;
+  detail: string;
+  kind: "model" | "prompt" | "service";
+  x: number;
+  y: number;
+};
+
+type GraphEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -205,6 +221,7 @@ function App(): JSX.Element {
             <Link to="/conversations">Conversations</Link>
             <Link to="/processing-jobs">Processing jobs</Link>
             <Link to="/prompts">Prompts</Link>
+            <Link to="/ai-models">AI Models</Link>
           </nav>
         </aside>
         <main className="main">
@@ -215,6 +232,7 @@ function App(): JSX.Element {
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/processing-jobs" element={<ProcessingJobs />} />
             <Route path="/prompts" element={<PromptManagement />} />
+            <Route path="/ai-models" element={<AiModelsGraph />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -255,6 +273,7 @@ function Dashboard(): JSX.Element {
           <Link className="button" to="/conversations"><MessageSquare size={16} /> Conversations</Link>
           <Link className="button" to="/processing-jobs"><Activity size={16} /> Jobs</Link>
           <Link className="button" to="/prompts"><FileText size={16} /> Prompts</Link>
+          <Link className="button" to="/ai-models"><Activity size={16} /> AI Models</Link>
           <Link className="button primary" to="/customers"><Search size={16} /> Customers</Link>
         </div>
       </div>
@@ -1081,6 +1100,70 @@ function PromptManagement(): JSX.Element {
   );
 }
 
+function AiModelsGraph(): JSX.Element {
+  const [prompts, setPrompts] = React.useState<Prompt[]>([]);
+  const [error, setError] = React.useState("");
+
+  const load = React.useCallback(() => {
+    request<{ data: Prompt[] }>("/prompts?limit=100")
+      .then((body) => {
+        setPrompts(body.data);
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, []);
+
+  React.useEffect(load, [load]);
+
+  const graph = React.useMemo(() => buildAiModelGraph(prompts), [prompts]);
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+
+  return (
+    <section className="page">
+      <div className="page-header">
+        <div>
+          <h1>AI Models</h1>
+          <p>Model, prompt, and service map for Tina’s runtime AI stack.</p>
+        </div>
+        <button className="icon-button" title="Refresh" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <section className="model-graph-panel">
+        <div className="model-graph">
+          <svg className="model-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {graph.edges.map((edge) => {
+              const from = nodeById.get(edge.from);
+              const to = nodeById.get(edge.to);
+              if (!from || !to) return null;
+              return (
+                <g key={edge.id}>
+                  <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+                  <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2}>{edge.label}</text>
+                </g>
+              );
+            })}
+          </svg>
+          {graph.nodes.map((node) => (
+            <div
+              className={`model-node ${node.kind}`}
+              key={node.id}
+              style={{ left: `${node.x}%`, top: `${node.y}%` }}
+            >
+              <strong>{node.label}</strong>
+              <span>{node.detail}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+      <div className="model-legend">
+        <span><b className="legend-box model" /> Model</span>
+        <span><b className="legend-box prompt" /> Prompt</span>
+        <span><b className="legend-box service" /> Service</span>
+      </div>
+    </section>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }): JSX.Element {
   const content = message.body || message.caption || message.processedText || "-";
   const hasProcessedText = Boolean(message.processedText && message.processedText !== message.body && message.processedText !== message.caption);
@@ -1227,6 +1310,110 @@ function normalizeToolCalls(value: unknown): ToolCall[] {
     calls.push({ name, args: record.args ?? record.arguments ?? {}, result: record.result ?? record.output ?? null, triggeredAt });
   }
   return calls;
+}
+
+function buildAiModelGraph(prompts: Prompt[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const configuredPrompts = prompts.length > 0 ? prompts : fallbackPromptGraphPrompts();
+  const modelNames = Array.from(
+    new Set(
+      [
+        ...configuredPrompts.flatMap((prompt) => [prompt.model, ...prompt.usage.map((usage) => usage.model)]),
+        "gpt-4o-mini-transcribe",
+        "whisper-1"
+      ]
+        .filter((value): value is string => Boolean(value && value.trim()))
+        .map((value) => value.trim())
+    )
+  );
+  const promptNodes = configuredPrompts.slice(0, 8);
+  const serviceNames = Array.from(new Set(configuredPrompts.flatMap((prompt) => prompt.usage.map((usage) => usage.service)))).slice(0, 6);
+  if (!serviceNames.includes("Audio transcription")) serviceNames.push("Audio transcription");
+
+  const nodes: GraphNode[] = [
+    ...layoutRow(modelNames, 18, "model", (name) => ({ id: `model:${name}`, label: name, detail: "AI model" })),
+    ...layoutRow(promptNodes, 53, "prompt", (prompt) => ({
+      id: `prompt:${prompt.key}`,
+      label: prompt.name,
+      detail: `${prompt.category} · v${prompt.version}`
+    })),
+    ...layoutRow(serviceNames, 86, "service", (service) => ({ id: `service:${service}`, label: service, detail: "Runtime service" }))
+  ];
+
+  const edges: GraphEdge[] = [];
+  for (const prompt of promptNodes) {
+    const promptId = `prompt:${prompt.key}`;
+    const linkedModels = Array.from(new Set([prompt.model, ...prompt.usage.map((usage) => usage.model)].filter((value): value is string => Boolean(value))));
+    for (const model of linkedModels) {
+      edges.push({ id: `model:${model}->${promptId}`, from: `model:${model}`, to: promptId, label: "uses" });
+    }
+    for (const usage of prompt.usage) {
+      edges.push({ id: `${promptId}->service:${usage.service}`, from: promptId, to: `service:${usage.service}`, label: "runs in" });
+    }
+  }
+  edges.push({ id: "model:gpt-4o-mini-transcribe->service:Audio transcription", from: "model:gpt-4o-mini-transcribe", to: "service:Audio transcription", label: "transcribes" });
+  edges.push({ id: "model:whisper-1->service:Audio transcription", from: "model:whisper-1", to: "service:Audio transcription", label: "fallback" });
+
+  return { nodes, edges: edges.filter((edge) => nodes.some((node) => node.id === edge.from) && nodes.some((node) => node.id === edge.to)) };
+}
+
+function layoutRow<T>(
+  items: T[],
+  y: number,
+  kind: GraphNode["kind"],
+  map: (item: T) => Omit<GraphNode, "x" | "y" | "kind">
+): GraphNode[] {
+  const count = Math.max(items.length, 1);
+  return items.map((item, index) => ({
+    ...map(item),
+    kind,
+    x: ((index + 1) * 100) / (count + 1),
+    y
+  }));
+}
+
+function fallbackPromptGraphPrompts(): Prompt[] {
+  return [
+    {
+      id: "fallback-sales",
+      key: "sales.main_system",
+      name: "Tina Sales System Prompt",
+      description: null,
+      category: "Sales",
+      content: "",
+      version: 1,
+      status: "active",
+      isActive: true,
+      model: "gpt-5.4-mini",
+      temperature: 0.2,
+      maxTokens: null,
+      responseFormat: null,
+      variables: [],
+      metadata: {},
+      usage: [{ service: "Tinabrain", module: "tinabrain/tinabrain/graph.py", trigger: "System prompt", model: "gpt-5.4-mini" }],
+      createdAt: "",
+      updatedAt: ""
+    },
+    {
+      id: "fallback-media",
+      key: "media.image_analysis",
+      name: "Vision and Document Analysis Prompt",
+      description: null,
+      category: "Media",
+      content: "",
+      version: 1,
+      status: "active",
+      isActive: true,
+      model: "gpt-4o-mini",
+      temperature: 0,
+      maxTokens: null,
+      responseFormat: null,
+      variables: [],
+      metadata: {},
+      usage: [{ service: "Backend media processing", module: "backend/src/media/media.service.ts", trigger: "Vision analysis", model: "gpt-4o-mini" }],
+      createdAt: "",
+      updatedAt: ""
+    }
+  ];
 }
 
 function parseJson(value: string | null | undefined): Record<string, unknown> | null {

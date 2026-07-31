@@ -595,6 +595,124 @@ label {
   margin-top: 12px;
 }
 
+.model-graph-panel {
+  background: #fff;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  overflow: auto;
+  padding: 18px;
+}
+
+.model-graph {
+  background: #f8faf8;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  height: 620px;
+  min-width: 980px;
+  position: relative;
+}
+
+.model-edges {
+  inset: 0;
+  overflow: visible;
+  position: absolute;
+}
+
+.model-edges line {
+  stroke: #a7b7ad;
+  stroke-width: 0.26;
+}
+
+.model-edges text {
+  fill: #65746c;
+  font-size: 2.4px;
+  paint-order: stroke;
+  stroke: #f8faf8;
+  stroke-width: 0.8px;
+  text-anchor: middle;
+}
+
+.model-node {
+  align-items: center;
+  aspect-ratio: 1;
+  border: 2px solid #c9d7ce;
+  border-radius: 4px;
+  box-shadow: 0 12px 28px rgba(21, 36, 30, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px;
+  position: absolute;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  width: 136px;
+}
+
+.model-node strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.model-node span {
+  color: #65746c;
+  font-size: 11px;
+  line-height: 1.25;
+  margin-top: 7px;
+}
+
+.model-node.model {
+  background: #e8f5ee;
+  border-color: #58a477;
+}
+
+.model-node.prompt {
+  background: #f7f2e8;
+  border-color: #c8a667;
+}
+
+.model-node.service {
+  background: #eef1f8;
+  border-color: #788fbf;
+}
+
+.model-legend {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.model-legend span {
+  align-items: center;
+  color: #596861;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 7px;
+}
+
+.legend-box {
+  border: 2px solid;
+  border-radius: 3px;
+  display: inline-block;
+  height: 15px;
+  width: 15px;
+}
+
+.legend-box.model {
+  background: #e8f5ee;
+  border-color: #58a477;
+}
+
+.legend-box.prompt {
+  background: #f7f2e8;
+  border-color: #c8a667;
+}
+
+.legend-box.service {
+  background: #eef1f8;
+  border-color: #788fbf;
+}
+
 .compact-error {
   margin-top: 10px;
   padding: 8px 10px;
@@ -659,5 +777,10 @@ label {
 
   .searchbox {
     min-width: 0;
+  }
+
+  .model-graph {
+    height: 520px;
+    min-width: 860px;
   }
 }

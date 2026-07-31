@@ -26,7 +26,7 @@ export class ConversationsService {
   }
 
   async list(query: ConversationListQueryDto): Promise<unknown> {
-    const where: Prisma.ConversationWhereInput = {};
+    const where: Prisma.ConversationWhereInput = { archivedAt: null, customer: { archivedAt: null } };
     if (query.customerId) where.customerId = query.customerId;
     const [data, total] = await this.prisma.$transaction([
       this.prisma.conversation.findMany({

@@ -125,6 +125,11 @@ h2 {
   color: #fff;
 }
 
+.button.danger {
+  border-color: #d8b5b5;
+  color: #963535;
+}
+
 .icon-button {
   justify-content: center;
   min-width: 38px;
@@ -736,6 +741,15 @@ label {
 .error {
   background: #faeaea;
   color: #963535;
+}
+
+.archive-banner {
+  background: #fff4e6;
+  border: 1px solid #e3c494;
+  border-radius: 6px;
+  color: #76501e;
+  margin-bottom: 16px;
+  padding: 10px 12px;
 }
 
 @media (max-width: 850px) {

@@ -20,8 +20,10 @@ export class CustomersRepository {
     return this.prisma.customer.delete({ where: { id } });
   }
 
-  findById(id: string): Promise<Customer | null> {
-    return this.prisma.customer.findUnique({ where: { id } });
+  findById(id: string, options: { includeArchived?: boolean } = {}): Promise<Customer | null> {
+    return this.prisma.customer.findFirst({
+      where: { id, ...(options.includeArchived ? {} : { archivedAt: null }) }
+    });
   }
 
   findByIdentifiers(input: {
@@ -31,10 +33,10 @@ export class CustomersRepository {
     chatId?: string | null;
   }): Promise<Customer | null> {
     const where: Prisma.CustomerWhereInput[] = [];
-    if (input.whatsappId) where.push({ whatsappId: input.whatsappId });
-    if (input.lid) where.push({ lid: input.lid });
-    if (input.phoneNumber) where.push({ phoneNumber: input.phoneNumber });
-    if (input.chatId) where.push({ chatId: input.chatId });
+    if (input.whatsappId) where.push({ whatsappId: input.whatsappId, archivedAt: null });
+    if (input.lid) where.push({ lid: input.lid, archivedAt: null });
+    if (input.phoneNumber) where.push({ phoneNumber: input.phoneNumber, archivedAt: null });
+    if (input.chatId) where.push({ chatId: input.chatId, archivedAt: null });
     if (where.length === 0) return Promise.resolve(null);
     return this.prisma.customer.findFirst({ where: { OR: where }, orderBy: { updatedAt: "desc" } });
   }
@@ -45,8 +47,14 @@ export class CustomersRepository {
     search?: string;
     status?: string;
     sort?: "newest_contact" | "newest_customer";
+    scope?: "active" | "archived" | "all";
   }): Promise<{ customers: CustomerWithMessageCount[]; total: number }> {
     const where: Prisma.CustomerWhereInput = {};
+    if (input.scope === "archived") {
+      where.archivedAt = { not: null };
+    } else if (input.scope !== "all") {
+      where.archivedAt = null;
+    }
     if (input.status) {
       where.status = input.status;
     }

@@ -147,6 +147,11 @@ export class CustomerListQueryDto {
   @IsOptional()
   @IsIn(["newest_contact", "newest_customer"])
   sort?: "newest_contact" | "newest_customer" = "newest_contact";
+
+  @ApiPropertyOptional({ enum: ["active", "archived", "all"], default: "active" })
+  @IsOptional()
+  @IsIn(["active", "archived", "all"])
+  scope?: "active" | "archived" | "all" = "active";
 }
 
 export class LookupCustomerQueryDto {
@@ -197,4 +202,16 @@ export class CustomerContextQueryDto {
   @Min(1)
   @Max(100)
   messageLimit = 20;
+}
+
+export class ArchiveCustomerDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  archivedBy?: string;
 }

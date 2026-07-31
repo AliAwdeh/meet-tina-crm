@@ -6,7 +6,7 @@ import "./styles.css";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
 const apiKey = import.meta.env.VITE_API_KEY ?? "change-me";
-const statuses = ["new", "active", "qualified", "follow_up", "converted", "not_interested", "blocked"];
+const statuses = ["new", "active", "qualified", "follow_up", "converted", "not_interested", "blocked", "deactivated", "deleted"];
 
 type Customer = {
   id: string;
@@ -23,6 +23,10 @@ type Customer = {
   interests: string[];
   freeTextProfile: string | null;
   internalNotes: string | null;
+  archivedAt: string | null;
+  archivedBy: string | null;
+  archivedReason: string | null;
+  archivedMode: string | null;
   lastContactAt: string | null;
   createdAt: string;
   messageCount?: number;
@@ -296,12 +300,13 @@ function CustomerList(): JSX.Element {
   const [search, setSearch] = React.useState("");
   const [status, setStatus] = React.useState("");
   const [sort, setSort] = React.useState("newest_contact");
+  const [scope, setScope] = React.useState<"active" | "archived">("active");
   const [page, setPage] = React.useState(1);
   const [totalPages, setTotalPages] = React.useState(1);
   const [error, setError] = React.useState("");
 
   const load = React.useCallback(() => {
-    const params = new URLSearchParams({ page: String(page), limit: "25", sort });
+    const params = new URLSearchParams({ page: String(page), limit: "25", sort, scope });
     if (search) params.set("search", search);
     if (status) params.set("status", status);
     request<{ data: Customer[]; pagination: { totalPages: number } }>(`/customers?${params.toString()}`)
@@ -311,7 +316,7 @@ function CustomerList(): JSX.Element {
         setError("");
       })
       .catch((err: Error) => setError(err.message));
-  }, [page, search, sort, status]);
+  }, [page, scope, search, sort, status]);
 
   React.useEffect(load, [load]);
   React.useEffect(() => {
@@ -331,8 +336,8 @@ function CustomerList(): JSX.Element {
     <section className="page">
       <div className="page-header">
         <div>
-          <h1>Customers</h1>
-          <p>Search, filter, and open customer profiles.</p>
+          <h1>{scope === "archived" ? "Archived customers" : "Customers"}</h1>
+          <p>{scope === "archived" ? "Customers moved outside active CRM and AI scope." : "Search, filter, and open active customer profiles."}</p>
         </div>
         <button className="button primary" onClick={() => void createCustomer()}><Plus size={16} /> Create</button>
       </div>
@@ -341,6 +346,10 @@ function CustomerList(): JSX.Element {
         <select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }}>
           <option value="">All statuses</option>
           {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <select value={scope} onChange={(event) => { setPage(1); setScope(event.target.value as "active" | "archived"); }}>
+          <option value="active">Active CRM</option>
+          <option value="archived">Archived</option>
         </select>
         <select value={sort} onChange={(event) => setSort(event.target.value)}>
           <option value="newest_contact">Newest contact</option>
@@ -359,6 +368,7 @@ function CustomerList(): JSX.Element {
               <th>Status</th>
               <th>Interests</th>
               <th>Last contact</th>
+              <th>Archive</th>
               <th>Messages</th>
             </tr>
           </thead>
@@ -371,6 +381,7 @@ function CustomerList(): JSX.Element {
                 <td><span className="status">{customer.status}</span></td>
                 <td>{customer.interests.join(", ") || "-"}</td>
                 <td>{formatDate(customer.lastContactAt)}</td>
+                <td>{customer.archivedAt ? `${customer.archivedMode ?? "archived"} · ${formatDate(customer.archivedAt)}` : "-"}</td>
                 <td>{customer.messageCount ?? 0}</td>
               </tr>
             ))}
@@ -431,6 +442,20 @@ function CustomerDetail(): JSX.Element {
     flash("Saved");
   }
 
+  async function archiveCustomer(mode: "deactivate" | "delete"): Promise<void> {
+    const label = mode === "delete" ? "delete" : "deactivate";
+    const reason = window.prompt(`Reason to ${label} this customer?`, mode === "delete" ? "Deleted from active CRM scope." : "Deactivated from active CRM scope.");
+    if (reason === null) return;
+    if (!window.confirm(`This will move the customer and conversations outside Tina's active AI scope. Continue?`)) return;
+    const updated = await request<Customer>(`/customers/${customerId}/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ reason, archivedBy: "dashboard" })
+    });
+    setCustomer(updated);
+    flash(mode === "delete" ? "Deleted from active scope" : "Deactivated");
+    load();
+  }
+
   function flash(value: string): void {
     setNotice(value);
     window.setTimeout(() => setNotice(""), 1600);
@@ -448,8 +473,18 @@ function CustomerDetail(): JSX.Element {
           <h1>{customer.displayName ?? "Unnamed customer"}</h1>
           <p>{customer.whatsappId ?? customer.phoneNumber ?? "No WhatsApp identifier saved"}</p>
         </div>
-        <button className="button primary" onClick={() => void saveCustomer(customer)}><Save size={16} /> Save</button>
+        <div className="header-actions">
+          {!customer.archivedAt && <button className="button danger" onClick={() => void archiveCustomer("deactivate")}>Deactivate</button>}
+          {!customer.archivedAt && <button className="button danger" onClick={() => void archiveCustomer("delete")}><Trash2 size={16} /> Delete</button>}
+          <button className="button primary" onClick={() => void saveCustomer(customer)}><Save size={16} /> Save</button>
+        </div>
       </div>
+      {customer.archivedAt && (
+        <p className="archive-banner">
+          Archived as {customer.archivedMode ?? customer.status} on {formatDate(customer.archivedAt)}. This customer and its conversations are outside Tina's active AI scope.
+          {customer.archivedReason ? ` Reason: ${customer.archivedReason}` : ""}
+        </p>
+      )}
       {notice && <p className="success"><Check size={16} /> {notice}</p>}
       <div className="detail-grid">
         <ProfileEditor customer={customer} setCustomer={setCustomer} />

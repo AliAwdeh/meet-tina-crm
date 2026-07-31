@@ -4,6 +4,7 @@ import { AttributesService } from "./attributes.service";
 import { CustomersService } from "./customers.service";
 import { BulkUpsertAttributesDto, UpsertAttributeDto } from "./dto/attribute.dto";
 import {
+  ArchiveCustomerDto,
   CreateCustomerDto,
   CustomerContextQueryDto,
   CustomerListQueryDto,
@@ -83,6 +84,16 @@ export class CustomersController {
   @Patch(":id")
   update(@Param("id") id: string, @Body() dto: UpdateCustomerDto): Promise<unknown> {
     return this.customers.update(id, dto);
+  }
+
+  @Post(":id/deactivate")
+  deactivate(@Param("id") id: string, @Body() dto: ArchiveCustomerDto): Promise<unknown> {
+    return this.customers.deactivate(id, dto);
+  }
+
+  @Post(":id/delete")
+  archiveDelete(@Param("id") id: string, @Body() dto: ArchiveCustomerDto): Promise<unknown> {
+    return this.customers.archiveCustomer(id, "deleted", dto);
   }
 
   @Delete(":id")

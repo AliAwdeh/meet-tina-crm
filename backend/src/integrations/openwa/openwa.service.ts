@@ -169,7 +169,9 @@ export class OpenwaService {
         customerId: true,
         conversationId: true,
         direction: true,
-        createdAt: true
+        createdAt: true,
+        customer: { select: { archivedAt: true } },
+        conversation: { select: { archivedAt: true } }
       }
     });
     if (!message) {
@@ -179,6 +181,12 @@ export class OpenwaService {
       throw new BadRequestException({
         code: "MESSAGE_RETRY_NOT_INCOMING",
         message: "Only incoming customer messages can be retried through TinaBrain."
+      });
+    }
+    if (message.customer.archivedAt || message.conversation.archivedAt) {
+      throw new BadRequestException({
+        code: "MESSAGE_RETRY_ARCHIVED_CUSTOMER",
+        message: "This message cannot be retried because the customer is outside active AI scope."
       });
     }
 
@@ -236,8 +244,19 @@ export class OpenwaService {
 
   private async processIncomingAfterAck(input: { customerId: string; conversationId: string; messageId: string }): Promise<void> {
     const correlationId = `cpm_${input.messageId}`;
-    const message = await this.prisma.message.findUnique({ where: { id: input.messageId }, select: { id: true } });
+    const message = await this.prisma.message.findUnique({
+      where: { id: input.messageId },
+      select: {
+        id: true,
+        customer: { select: { archivedAt: true } },
+        conversation: { select: { archivedAt: true } }
+      }
+    });
     if (!message) return;
+    if (message.customer.archivedAt || message.conversation.archivedAt) {
+      await this.aiProcessing.markMessageUnusable(input.messageId, "Skipped: customer was moved outside active AI scope before TinaBrain dispatch.");
+      return;
+    }
     await this.media.processMessageAttachments(input.messageId);
     await this.aiProcessing.cancelOpenJobsForNewCustomerMessage(input.conversationId, input.messageId);
     if (!(await this.messageHasUsableText(input.messageId))) {
@@ -321,16 +340,16 @@ export class OpenwaService {
 
   private async resolveCustomer(tx: Prisma.TransactionClient, message: NormalizedOpenwaMessage) {
     const byWhatsappId = message.whatsappId
-      ? await tx.customer.findFirst({ where: { whatsappId: message.whatsappId } })
+      ? await tx.customer.findFirst({ where: { whatsappId: message.whatsappId, archivedAt: null } })
       : null;
-    const byLid = !byWhatsappId && message.lid ? await tx.customer.findFirst({ where: { lid: message.lid } }) : null;
+    const byLid = !byWhatsappId && message.lid ? await tx.customer.findFirst({ where: { lid: message.lid, archivedAt: null } }) : null;
     const byPhone =
       !byWhatsappId && !byLid && message.phoneNumber
-        ? await tx.customer.findFirst({ where: { phoneNumber: message.phoneNumber } })
+        ? await tx.customer.findFirst({ where: { phoneNumber: message.phoneNumber, archivedAt: null } })
         : null;
     const byChatId =
       !byWhatsappId && !byLid && !byPhone && message.chatId
-        ? await tx.customer.findFirst({ where: { chatId: message.chatId } })
+        ? await tx.customer.findFirst({ where: { chatId: message.chatId, archivedAt: null } })
         : null;
     const existing = byWhatsappId ?? byLid ?? byPhone ?? byChatId;
 

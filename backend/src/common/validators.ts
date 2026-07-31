@@ -7,7 +7,9 @@ const customerStatuses = [
   "follow_up",
   "converted",
   "not_interested",
-  "blocked"
+  "blocked",
+  "deactivated",
+  "deleted"
 ] as const;
 
 const directions = ["incoming", "outgoing"] as const;

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { stringifyJson } from "../common/json.util";
 import { PrismaService } from "../database/prisma.service";
-import { CreateCustomerDto, CustomerListQueryDto, ProfileSummaryDto, UpdateCustomerDto } from "./dto/customer.dto";
+import { ArchiveCustomerDto, CreateCustomerDto, CustomerListQueryDto, ProfileSummaryDto, UpdateCustomerDto } from "./dto/customer.dto";
 import { CustomersRepository } from "./customers.repository";
 import { CustomerView, toAttributeView, toCustomerView } from "./customer.mapper";
 
@@ -35,7 +35,7 @@ export class CustomersService {
   }
 
   async findOne(id: string): Promise<CustomerView> {
-    const customer = await this.customers.findById(id);
+    const customer = await this.customers.findById(id, { includeArchived: true });
     if (!customer) {
       throw new NotFoundException({ code: "CUSTOMER_NOT_FOUND", message: "Customer was not found." });
     }
@@ -49,9 +49,61 @@ export class CustomersService {
   }
 
   async remove(id: string): Promise<{ success: true }> {
-    await this.ensureExists(id);
-    await this.customers.delete(id);
+    await this.archiveCustomer(id, "deleted", {});
     return { success: true };
+  }
+
+  async deactivate(id: string, dto: ArchiveCustomerDto): Promise<CustomerView> {
+    return this.archiveCustomer(id, "deactivated", dto);
+  }
+
+  async archiveCustomer(id: string, mode: "deactivated" | "deleted", dto: ArchiveCustomerDto): Promise<CustomerView> {
+    const existing = await this.customers.findById(id);
+    if (!existing) {
+      throw new NotFoundException({ code: "CUSTOMER_NOT_FOUND", message: "Customer was not found." });
+    }
+    const now = new Date();
+    const reason =
+      dto.reason ??
+      (mode === "deleted"
+        ? "Customer deleted from active CRM scope."
+        : "Customer deactivated from active CRM scope.");
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.processingJob.updateMany({
+        where: { customerId: id, status: { in: ["queued", "processing"] } },
+        data: {
+          status: "cancelled",
+          lastError: `${mode}_customer_archived: customer moved outside active AI scope`
+        }
+      });
+      await tx.message.updateMany({
+        where: { customerId: id, n8nStatus: { in: ["queued", "processing"] } },
+        data: {
+          n8nStatus: "skipped",
+          failureReason: `${mode}_customer_archived: customer moved outside active AI scope`
+        }
+      });
+      await tx.conversation.updateMany({
+        where: { customerId: id, archivedAt: null },
+        data: {
+          status: "archived",
+          archivedAt: now,
+          archivedMode: mode,
+          archivedReason: reason
+        }
+      });
+      return tx.customer.update({
+        where: { id },
+        data: {
+          status: mode,
+          archivedAt: now,
+          archivedMode: mode,
+          archivedReason: reason,
+          archivedBy: dto.archivedBy ?? "dashboard"
+        }
+      });
+    });
+    return toCustomerView(updated);
   }
 
   async lookup(input: {
@@ -135,7 +187,7 @@ export class CustomersService {
       }>;
     }>;
   }> {
-    const customer = await this.findOne(customerId);
+    const customer = await this.findActiveOne(customerId);
     const [attributes, messages] = await Promise.all([
       this.prisma.customerAttribute.findMany({ where: { customerId }, orderBy: { key: "asc" } }),
       this.prisma.message.findMany({
@@ -199,6 +251,14 @@ export class CustomersService {
     if (!customer) {
       throw new NotFoundException({ code: "CUSTOMER_NOT_FOUND", message: "Customer was not found." });
     }
+  }
+
+  private async findActiveOne(id: string): Promise<CustomerView> {
+    const customer = await this.customers.findById(id);
+    if (!customer) {
+      throw new NotFoundException({ code: "CUSTOMER_NOT_FOUND", message: "Customer was not found in active CRM scope." });
+    }
+    return toCustomerView(customer);
   }
 
   private toCreateInput(dto: CreateCustomerDto): Prisma.CustomerCreateInput {

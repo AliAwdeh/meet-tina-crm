@@ -26,14 +26,14 @@ export class StatsService {
       outgoingMessages,
       contactedLastSevenDays
     ] = await this.prisma.$transaction([
-      this.prisma.customer.count(),
-      this.prisma.customer.count({ where: { status: "new" } }),
-      this.prisma.customer.count({ where: { status: "active" } }),
-      this.prisma.customer.count({ where: { status: "qualified" } }),
+      this.prisma.customer.count({ where: { archivedAt: null } }),
+      this.prisma.customer.count({ where: { status: "new", archivedAt: null } }),
+      this.prisma.customer.count({ where: { status: "active", archivedAt: null } }),
+      this.prisma.customer.count({ where: { status: "qualified", archivedAt: null } }),
       this.prisma.message.count(),
       this.prisma.message.count({ where: { direction: "incoming" } }),
       this.prisma.message.count({ where: { direction: "outgoing" } }),
-      this.prisma.customer.count({ where: { lastContactAt: { gte: sevenDaysAgo } } })
+      this.prisma.customer.count({ where: { lastContactAt: { gte: sevenDaysAgo }, archivedAt: null } })
     ]);
     return {
       totalCustomers,

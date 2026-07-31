@@ -225,6 +225,52 @@ describe("Meet Tina CRM", () => {
     expect(secondJob?.id).not.toBe(firstJob?.id);
   });
 
+  it("moves deactivated customers outside active AI scope and creates a fresh customer on new contact", async () => {
+    const first = await openwaPost(openwaPayload({
+      id: "archive-boundary-1",
+      idempotencyKey: "key-archive-boundary-1",
+      body: "I need help with appointments."
+    })).expect(201);
+
+    await waitFor(
+      () => prisma.processingJob.findFirst({ where: { customerId: first.body.customer.id } }),
+      (entry) => Boolean(entry)
+    );
+
+    const archived = await api().post(`/api/v1/customers/${first.body.customer.id}/deactivate`).send({
+      reason: "Test deactivation",
+      archivedBy: "test"
+    }).expect(201);
+    expect(archived.body.archivedAt).toBeTruthy();
+    expect(archived.body.status).toBe("deactivated");
+
+    const oldConversation = await prisma.conversation.findUniqueOrThrow({ where: { id: first.body.conversation.id } });
+    expect(oldConversation.status).toBe("archived");
+    expect(oldConversation.archivedAt).toBeTruthy();
+
+    await api().get(`/api/v1/customers/${first.body.customer.id}/context`).expect(404);
+    await api().get("/api/v1/customers/lookup?whatsappId=102907500351574@lid").expect(404);
+
+    const activeList = await api().get("/api/v1/customers").expect(200);
+    expect(activeList.body.data.some((customer: { id: string }) => customer.id === first.body.customer.id)).toBe(false);
+
+    const archivedList = await api().get("/api/v1/customers?scope=archived").expect(200);
+    expect(archivedList.body.data.some((customer: { id: string }) => customer.id === first.body.customer.id)).toBe(true);
+
+    const second = await openwaPost(openwaPayload({
+      id: "archive-boundary-2",
+      idempotencyKey: "key-archive-boundary-2",
+      body: "Hi again, I need help with appointments."
+    })).expect(201);
+    expect(second.body.customer.id).not.toBe(first.body.customer.id);
+    expect(second.body.conversation.id).not.toBe(first.body.conversation.id);
+
+    const customers = await prisma.customer.findMany({ where: { whatsappId: "102907500351574@lid" }, orderBy: { createdAt: "asc" } });
+    expect(customers).toHaveLength(2);
+    expect(customers[0].archivedAt).toBeTruthy();
+    expect(customers[1].archivedAt).toBeNull();
+  });
+
   it("processes outgoing OpenWA and manual messages, then returns chatbot context", async () => {
     const incoming = await openwaPost(openwaPayload({
       id: "incoming-4",

@@ -31,6 +31,10 @@ model Customer {
   metadata        String              @default("{}")
   firstContactAt  DateTime?
   lastContactAt   DateTime?
+  archivedAt      DateTime?
+  archivedBy      String?
+  archivedReason  String?
+  archivedMode    String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   attributes      CustomerAttribute[]
@@ -43,6 +47,8 @@ model Customer {
   @@index([lid])
   @@index([phoneNumber])
   @@index([status])
+  @@index([archivedAt])
+  @@index([archivedMode])
   @@index([lastContactAt])
 }
 
@@ -69,6 +75,9 @@ model Conversation {
   status        String    @default("active")
   startedAt     DateTime  @default(now())
   lastMessageAt DateTime?
+  archivedAt    DateTime?
+  archivedReason String?
+  archivedMode   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -80,6 +89,7 @@ model Conversation {
   @@index([externalChatId])
   @@index([sessionId])
   @@index([status])
+  @@index([archivedAt])
 }
 
 model Message {

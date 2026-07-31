@@ -181,20 +181,18 @@ type PromptTestResult = {
   destructiveToolsExecuted: boolean;
 };
 
-type GraphNode = {
+type RuntimeFlow = {
   id: string;
-  label: string;
-  detail: string;
-  kind: "model" | "prompt" | "service";
-  x: number;
-  y: number;
-};
-
-type GraphEdge = {
-  id: string;
-  from: string;
-  to: string;
-  label: string;
+  title: string;
+  category: string;
+  model: string;
+  promptName: string;
+  promptKey: string;
+  promptVersion: number;
+  service: string;
+  module: string;
+  trigger: string;
+  status: string;
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -1150,13 +1148,8 @@ function AiModelsGraph(): JSX.Element {
 
   React.useEffect(load, [load]);
 
-  const graph = React.useMemo(() => buildAiModelGraph(prompts), [prompts]);
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-  const nodesByKind = {
-    model: graph.nodes.filter((node) => node.kind === "model"),
-    prompt: graph.nodes.filter((node) => node.kind === "prompt"),
-    service: graph.nodes.filter((node) => node.kind === "service")
-  };
+  const flows = React.useMemo(() => buildAiRuntimeFlows(prompts), [prompts]);
+  const modelUsage = React.useMemo(() => summarizeModelUsage(flows), [flows]);
 
   return (
     <section className="page">
@@ -1171,52 +1164,49 @@ function AiModelsGraph(): JSX.Element {
       <section className="model-graph-panel">
         <div className="model-graph-header">
           <strong>Tina AI runtime map</strong>
-          <span>{nodesByKind.model.length} models · {nodesByKind.prompt.length} prompts · {nodesByKind.service.length} services</span>
+          <span>{flows.length} runtime paths · {modelUsage.length} models</span>
         </div>
-        <div className="model-graph">
-          <GraphLane title="Models" nodes={nodesByKind.model} />
-          <div className="flow-divider" aria-hidden="true"><ChevronRight size={22} /></div>
-          <GraphLane title="Prompts" nodes={nodesByKind.prompt} />
-          <div className="flow-divider" aria-hidden="true"><ChevronRight size={22} /></div>
-          <GraphLane title="Services" nodes={nodesByKind.service} />
-          <aside className="model-relations">
-            <h2>Connections</h2>
-            {graph.edges.map((edge) => {
-              const from = nodeById.get(edge.from);
-              const to = nodeById.get(edge.to);
-              if (!from || !to) return null;
-              return (
-                <div className="relation-row" key={edge.id}>
-                  <span className={`relation-pill ${from.kind}`}>{from.label}</span>
-                  <small>{edge.label}</small>
-                  <span className={`relation-pill ${to.kind}`}>{to.label}</span>
-                </div>
-              );
-            })}
-          </aside>
+        <div className="model-usage-strip">
+          {modelUsage.map((usage) => (
+            <section className={`model-usage-card ${usage.model.includes("gpt-4o-mini") ? "highlight" : ""}`} key={usage.model}>
+              <strong>{usage.model}</strong>
+              <span>{usage.uses.join(" · ")}</span>
+            </section>
+          ))}
+        </div>
+        <div className="runtime-flow-grid">
+          {flows.map((flow) => (
+            <article className={`runtime-flow-card ${flow.model.includes("gpt-4o-mini") ? "highlight" : ""}`} key={flow.id}>
+              <header>
+                <span>{flow.category}</span>
+                <strong>{flow.title}</strong>
+              </header>
+              <div className="runtime-stack">
+                <section>
+                  <small>Model</small>
+                  <strong>{flow.model}</strong>
+                </section>
+                <ChevronRight size={18} aria-hidden="true" />
+                <section>
+                  <small>Prompt</small>
+                  <strong>{flow.promptName}</strong>
+                  <span>{flow.promptKey} · v{flow.promptVersion}</span>
+                </section>
+                <ChevronRight size={18} aria-hidden="true" />
+                <section>
+                  <small>Service</small>
+                  <strong>{flow.service}</strong>
+                  <span>{flow.trigger}</span>
+                </section>
+              </div>
+              <footer>
+                <span>{flow.module}</span>
+                <span>{flow.status}</span>
+              </footer>
+            </article>
+          ))}
         </div>
       </section>
-      <div className="model-legend">
-        <span><b className="legend-box model" /> Model</span>
-        <span><b className="legend-box prompt" /> Prompt</span>
-        <span><b className="legend-box service" /> Service</span>
-      </div>
-    </section>
-  );
-}
-
-function GraphLane({ title, nodes }: { title: string; nodes: GraphNode[] }): JSX.Element {
-  return (
-    <section className="graph-lane">
-      <h2>{title}</h2>
-      <div className="graph-node-list">
-        {nodes.map((node) => (
-          <div className={`model-node ${node.kind}`} key={node.id}>
-            <strong>{node.label}</strong>
-            <span>{node.detail}</span>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }
@@ -1434,63 +1424,53 @@ function normalizeToolCalls(value: unknown): ToolCall[] {
   return calls;
 }
 
-function buildAiModelGraph(prompts: Prompt[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
+function buildAiRuntimeFlows(prompts: Prompt[]): RuntimeFlow[] {
   const configuredPrompts = prompts.length > 0 ? prompts : fallbackPromptGraphPrompts();
-  const modelNames = Array.from(
-    new Set(
-      [
-        ...configuredPrompts.flatMap((prompt) => [prompt.model, ...prompt.usage.map((usage) => usage.model)]),
-        "gpt-4o-mini-transcribe",
-        "whisper-1"
-      ]
-        .filter((value): value is string => Boolean(value && value.trim()))
-        .map((value) => value.trim())
-    )
-  );
-  const promptNodes = configuredPrompts.slice(0, 8);
-  const serviceNames = Array.from(new Set(configuredPrompts.flatMap((prompt) => prompt.usage.map((usage) => usage.service)))).slice(0, 6);
-  if (!serviceNames.includes("Audio transcription")) serviceNames.push("Audio transcription");
+  const flows = configuredPrompts.flatMap((prompt) => {
+    const usages = prompt.usage.length > 0
+      ? prompt.usage
+      : [{ service: "Prompt registry", module: "backend/src/prompts", trigger: "Available for prompt testing", model: prompt.model }];
+    return usages.map((usage, index) => ({
+      id: `${prompt.key}:${usage.service}:${usage.module}:${index}`,
+      title: prompt.description ?? prompt.name,
+      category: prompt.category,
+      model: usage.model ?? prompt.model ?? "Not configured",
+      promptName: prompt.name,
+      promptKey: prompt.key,
+      promptVersion: prompt.version,
+      service: usage.service,
+      module: usage.module,
+      trigger: usage.trigger,
+      status: prompt.isActive ? "active" : prompt.status
+    }));
+  });
 
-  const nodes: GraphNode[] = [
-    ...layoutRow(modelNames, 18, "model", (name) => ({ id: `model:${name}`, label: name, detail: "AI model" })),
-    ...layoutRow(promptNodes, 53, "prompt", (prompt) => ({
-      id: `prompt:${prompt.key}`,
-      label: prompt.name,
-      detail: `${prompt.category} · v${prompt.version}`
-    })),
-    ...layoutRow(serviceNames, 86, "service", (service) => ({ id: `service:${service}`, label: service, detail: "Runtime service" }))
-  ];
+  flows.push({
+    id: "audio-transcription",
+    title: "Voice message transcription",
+    category: "Media",
+    model: "gpt-4o-mini-transcribe",
+    promptName: "Direct transcription request",
+    promptKey: "media.audio_transcription",
+    promptVersion: 1,
+    service: "Backend OpenAI media integration",
+    module: "backend/src/integrations/openai/openai-media.service.ts",
+    trigger: "When an incoming WhatsApp voice/audio message needs text before Tina replies.",
+    status: "active"
+  });
 
-  const edges: GraphEdge[] = [];
-  for (const prompt of promptNodes) {
-    const promptId = `prompt:${prompt.key}`;
-    const linkedModels = Array.from(new Set([prompt.model, ...prompt.usage.map((usage) => usage.model)].filter((value): value is string => Boolean(value))));
-    for (const model of linkedModels) {
-      edges.push({ id: `model:${model}->${promptId}`, from: `model:${model}`, to: promptId, label: "uses" });
-    }
-    for (const usage of prompt.usage) {
-      edges.push({ id: `${promptId}->service:${usage.service}`, from: promptId, to: `service:${usage.service}`, label: "runs in" });
-    }
-  }
-  edges.push({ id: "model:gpt-4o-mini-transcribe->service:Audio transcription", from: "model:gpt-4o-mini-transcribe", to: "service:Audio transcription", label: "transcribes" });
-  edges.push({ id: "model:whisper-1->service:Audio transcription", from: "model:whisper-1", to: "service:Audio transcription", label: "fallback" });
-
-  return { nodes, edges: edges.filter((edge) => nodes.some((node) => node.id === edge.from) && nodes.some((node) => node.id === edge.to)) };
+  return flows;
 }
 
-function layoutRow<T>(
-  items: T[],
-  y: number,
-  kind: GraphNode["kind"],
-  map: (item: T) => Omit<GraphNode, "x" | "y" | "kind">
-): GraphNode[] {
-  const count = Math.max(items.length, 1);
-  return items.map((item, index) => ({
-    ...map(item),
-    kind,
-    x: ((index + 1) * 100) / (count + 1),
-    y
-  }));
+function summarizeModelUsage(flows: RuntimeFlow[]): Array<{ model: string; uses: string[] }> {
+  const byModel = new Map<string, Set<string>>();
+  for (const flow of flows) {
+    const uses = byModel.get(flow.model) ?? new Set<string>();
+    uses.add(flow.service);
+    byModel.set(flow.model, uses);
+  }
+  return Array.from(byModel, ([model, uses]) => ({ model, uses: Array.from(uses).slice(0, 4) }))
+    .sort((left, right) => left.model.localeCompare(right.model));
 }
 
 function fallbackPromptGraphPrompts(): Prompt[] {

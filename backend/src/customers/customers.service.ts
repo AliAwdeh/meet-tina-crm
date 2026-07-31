@@ -29,7 +29,7 @@ export class CustomersService {
         page: query.page,
         limit: query.limit,
         total,
-        totalPages: Math.ceil(total / query.limit)
+        totalPages: Math.ceil(total / query.limit) || 1
       }
     };
   }

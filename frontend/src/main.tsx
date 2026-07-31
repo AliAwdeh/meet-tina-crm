@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Activity, Check, ChevronLeft, ChevronRight, FileText, MessageSquare, MessageSquarePlus, Mic, Plus, RefreshCw, Search, Save, Trash2, Wrench } from "lucide-react";
+import { Activity, Check, ChevronLeft, ChevronRight, FileText, History, MessageSquare, MessageSquarePlus, Mic, Play, Plus, RefreshCw, RotateCcw, Search, Save, Trash2, Wrench } from "lucide-react";
 import "./styles.css";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api/v1";
@@ -117,6 +117,66 @@ type Stats = {
   contactedLastSevenDays: number;
 };
 
+type PromptVariable = {
+  name: string;
+  required: boolean;
+  description?: string;
+  example?: string;
+};
+
+type PromptUsage = {
+  service: string;
+  module: string;
+  trigger: string;
+  model?: string;
+};
+
+type Prompt = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  content: string;
+  version: number;
+  status: string;
+  isActive: boolean;
+  model: string | null;
+  temperature: number | null;
+  maxTokens: number | null;
+  responseFormat: string | null;
+  variables: PromptVariable[];
+  metadata: Record<string, unknown>;
+  usage: PromptUsage[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PromptVersion = {
+  id: string;
+  promptId: string;
+  version: number;
+  content: string;
+  model: string | null;
+  temperature: number | null;
+  maxTokens: number | null;
+  responseFormat: string | null;
+  variables: PromptVariable[];
+  metadata: Record<string, unknown>;
+  changeNote: string | null;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+type PromptTestResult = {
+  renderedPrompt: string;
+  response: string | null;
+  model: string;
+  latencyMs: number;
+  tokenUsage: unknown;
+  destructiveToolsExecuted: boolean;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -144,6 +204,7 @@ function App(): JSX.Element {
             <Link to="/customers">Customers</Link>
             <Link to="/conversations">Conversations</Link>
             <Link to="/processing-jobs">Processing jobs</Link>
+            <Link to="/prompts">Prompts</Link>
           </nav>
         </aside>
         <main className="main">
@@ -153,6 +214,7 @@ function App(): JSX.Element {
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/processing-jobs" element={<ProcessingJobs />} />
+            <Route path="/prompts" element={<PromptManagement />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -192,6 +254,7 @@ function Dashboard(): JSX.Element {
         <div className="header-actions">
           <Link className="button" to="/conversations"><MessageSquare size={16} /> Conversations</Link>
           <Link className="button" to="/processing-jobs"><Activity size={16} /> Jobs</Link>
+          <Link className="button" to="/prompts"><FileText size={16} /> Prompts</Link>
           <Link className="button primary" to="/customers"><Search size={16} /> Customers</Link>
         </div>
       </div>
@@ -721,6 +784,303 @@ function ProcessingJobs(): JSX.Element {
   );
 }
 
+const promptCategories = ["Sales", "Routing", "Classification", "Extraction", "Generation", "Safety", "Media", "Follow-up", "Internal", "Other"];
+const promptStatuses = ["active", "draft", "archived"];
+
+function PromptManagement(): JSX.Element {
+  const [prompts, setPrompts] = React.useState<Prompt[]>([]);
+  const [selected, setSelected] = React.useState<Prompt | null>(null);
+  const [versions, setVersions] = React.useState<PromptVersion[]>([]);
+  const [search, setSearch] = React.useState("");
+  const [category, setCategory] = React.useState("");
+  const [status, setStatus] = React.useState("");
+  const [editor, setEditor] = React.useState(promptEditorDefaults());
+  const [changeNote, setChangeNote] = React.useState("");
+  const [sampleMessage, setSampleMessage] = React.useState("I run a clinic and I miss many WhatsApp appointment requests after hours.");
+  const [variablesJson, setVariablesJson] = React.useState("{}");
+  const [testResult, setTestResult] = React.useState<PromptTestResult | null>(null);
+  const [versionPreview, setVersionPreview] = React.useState<PromptVersion | null>(null);
+  const [notice, setNotice] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  const load = React.useCallback(() => {
+    const params = new URLSearchParams({ page: "1", limit: "100" });
+    if (search) params.set("search", search);
+    if (category) params.set("category", category);
+    if (status) params.set("status", status);
+    request<{ data: Prompt[] }>(`/prompts?${params.toString()}`)
+      .then((body) => {
+        setPrompts(body.data);
+        setSelected((current) => {
+          const next = body.data.find((prompt) => prompt.id === current?.id) ?? body.data[0] ?? null;
+          if (next) setEditor(promptToEditor(next));
+          return next;
+        });
+        setError("");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [category, search, status]);
+
+  const loadVersions = React.useCallback(() => {
+    if (!selected) {
+      setVersions([]);
+      setVersionPreview(null);
+      return;
+    }
+    request<PromptVersion[]>(`/prompts/${selected.id}/versions`)
+      .then((body) => {
+        setVersions(body);
+        setVersionPreview((current) => current && body.some((version) => version.id === current.id) ? current : body[0] ?? null);
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [selected]);
+
+  React.useEffect(load, [load]);
+  React.useEffect(loadVersions, [loadVersions]);
+
+  function selectPrompt(prompt: Prompt): void {
+    setSelected(prompt);
+    setEditor(promptToEditor(prompt));
+    setChangeNote("");
+    setTestResult(null);
+    setError("");
+  }
+
+  function createNew(): void {
+    const next = promptEditorDefaults();
+    setSelected(null);
+    setEditor(next);
+    setVersions([]);
+    setVersionPreview(null);
+    setChangeNote("Initial prompt version.");
+    setTestResult(null);
+  }
+
+  async function save(): Promise<void> {
+    try {
+      const payload = {
+        ...editor,
+        temperature: numericOrNull(editor.temperature),
+        maxTokens: integerOrNull(editor.maxTokens),
+        description: editor.description || undefined,
+        model: editor.model || undefined,
+        responseFormat: editor.responseFormat || undefined,
+        changeNote: changeNote || undefined,
+        updatedBy: "dashboard"
+      };
+      const saved = selected
+        ? await request<Prompt>(`/prompts/${selected.id}`, { method: "PUT", body: JSON.stringify(payload) })
+        : await request<Prompt>("/prompts", { method: "POST", body: JSON.stringify(payload) });
+      setSelected(saved);
+      setEditor(promptToEditor(saved));
+      setChangeNote("");
+      setNotice("Prompt saved");
+      window.setTimeout(() => setNotice(""), 1600);
+      load();
+      loadVersions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Prompt save failed");
+    }
+  }
+
+  async function activate(): Promise<void> {
+    if (!selected) return;
+    try {
+      const activated = await request<Prompt>(`/prompts/${selected.id}/activate`, {
+        method: "POST",
+        body: JSON.stringify({ updatedBy: "dashboard", changeNote: "Activated from dashboard." })
+      });
+      setSelected(activated);
+      setEditor(promptToEditor(activated));
+      load();
+      setNotice("Prompt activated");
+      window.setTimeout(() => setNotice(""), 1600);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Prompt activation failed");
+    }
+  }
+
+  async function restore(version: PromptVersion): Promise<void> {
+    if (!selected) return;
+    try {
+      const restored = await request<Prompt>(`/prompts/${selected.id}/restore/${version.id}`, {
+        method: "POST",
+        body: JSON.stringify({ updatedBy: "dashboard", changeNote: `Restored version ${version.version} from dashboard.` })
+      });
+      setSelected(restored);
+      setEditor(promptToEditor(restored));
+      load();
+      loadVersions();
+      setNotice(`Restored version ${version.version}`);
+      window.setTimeout(() => setNotice(""), 1600);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Prompt restore failed");
+    }
+  }
+
+  async function testPrompt(): Promise<void> {
+    try {
+      const variables = parseJsonObject(variablesJson);
+      const result = await request<PromptTestResult>("/prompts/test", {
+        method: "POST",
+        body: JSON.stringify({
+          promptId: selected?.id,
+          content: selected ? undefined : editor.content,
+          sampleMessage,
+          variables,
+          model: editor.model || undefined,
+          temperature: numericOrNull(editor.temperature) ?? undefined,
+          maxTokens: integerOrNull(editor.maxTokens) ?? undefined
+        })
+      });
+      setTestResult(result);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Prompt test failed");
+    }
+  }
+
+  return (
+    <section className="page">
+      <div className="page-header">
+        <div>
+          <h1>Prompt Management</h1>
+          <p>Edit Tina prompts, review version history, restore safely, and test rendering without deploying.</p>
+        </div>
+        <div className="header-actions">
+          <button className="button" onClick={createNew}><Plus size={16} /> New prompt</button>
+          <button className="icon-button" title="Refresh" onClick={load}><RefreshCw size={16} /></button>
+        </div>
+      </div>
+      {notice && <p className="success"><Check size={16} /> {notice}</p>}
+      {error && <p className="error">{error}</p>}
+      <div className="prompt-layout">
+        <aside className="prompt-list">
+          <div className="prompt-filters">
+            <label className="searchbox"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search prompts" /></label>
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option value="">All categories</option>
+              {promptCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="">All statuses</option>
+              {promptStatuses.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </div>
+          {prompts.map((prompt) => (
+            <button key={prompt.id} className={`prompt-row ${prompt.id === selected?.id ? "active" : ""}`} onClick={() => selectPrompt(prompt)}>
+              <strong>{prompt.name}</strong>
+              <span>{prompt.key}</span>
+              <small>{prompt.category} · v{prompt.version} · {prompt.status}</small>
+            </button>
+          ))}
+        </aside>
+        <section className="prompt-editor">
+          <div className="prompt-editor-header">
+            <div>
+              <h2>{selected ? selected.name : "New prompt"}</h2>
+              <p>{selected ? `Last updated ${formatDate(selected.updatedAt)}` : "Create a managed prompt with version history."}</p>
+            </div>
+            <div className="header-actions">
+              {selected && <button className="button" onClick={() => void activate()}><Check size={16} /> Activate</button>}
+              <button className="button primary" onClick={() => void save()}><Save size={16} /> Save</button>
+            </div>
+          </div>
+          <div className="form-grid">
+            <Input label="Key" value={editor.key} onChange={(value) => setEditor({ ...editor, key: value })} />
+            <Input label="Name" value={editor.name} onChange={(value) => setEditor({ ...editor, name: value })} />
+            <label>
+              <span>Category</span>
+              <select value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })}>
+                {promptCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={editor.status} onChange={(event) => setEditor({ ...editor, status: event.target.value })}>
+                {promptStatuses.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <Input label="Model" value={editor.model} onChange={(value) => setEditor({ ...editor, model: value })} />
+            <Input label="Temperature" value={editor.temperature} onChange={(value) => setEditor({ ...editor, temperature: value })} />
+            <Input label="Max tokens" value={editor.maxTokens} onChange={(value) => setEditor({ ...editor, maxTokens: value })} />
+            <Input label="Response format" value={editor.responseFormat} onChange={(value) => setEditor({ ...editor, responseFormat: value })} />
+          </div>
+          <Input label="Description" value={editor.description} onChange={(value) => setEditor({ ...editor, description: value })} />
+          <label>
+            <span>Prompt content</span>
+            <textarea className="prompt-content" value={editor.content} onChange={(event) => setEditor({ ...editor, content: event.target.value })} />
+          </label>
+          <Input label="Change note" value={changeNote} onChange={setChangeNote} />
+
+          <div className="prompt-tabs">
+            <section className="prompt-panel">
+              <h2><History size={16} /> Version history</h2>
+              <div className="version-list">
+                {versions.map((version) => (
+                  <button key={version.id} className={`version-row ${version.id === versionPreview?.id ? "active" : ""}`} onClick={() => setVersionPreview(version)}>
+                    <span>v{version.version}</span>
+                    <small>{formatDate(version.createdAt)} · {version.changeNote ?? "No note"}</small>
+                  </button>
+                ))}
+              </div>
+              {versionPreview && (
+                <>
+                  <div className="diff-grid">
+                    <div>
+                      <strong>Selected version</strong>
+                      <pre>{versionPreview.content}</pre>
+                    </div>
+                    <div>
+                      <strong>Current editor</strong>
+                      <pre>{editor.content}</pre>
+                    </div>
+                  </div>
+                  <button className="button" onClick={() => void restore(versionPreview)}><RotateCcw size={16} /> Restore selected</button>
+                </>
+              )}
+            </section>
+            <section className="prompt-panel">
+              <h2><Play size={16} /> Safe test</h2>
+              <label>
+                <span>Variables JSON</span>
+                <textarea value={variablesJson} onChange={(event) => setVariablesJson(event.target.value)} />
+              </label>
+              <label>
+                <span>Sample customer message</span>
+                <textarea value={sampleMessage} onChange={(event) => setSampleMessage(event.target.value)} />
+              </label>
+              <button className="button" onClick={() => void testPrompt()}><Play size={16} /> Run test</button>
+              {testResult && (
+                <div className="test-result">
+                  <strong>{testResult.model} · {testResult.latencyMs} ms · tools executed: {String(testResult.destructiveToolsExecuted)}</strong>
+                  <pre>{testResult.response ?? "No model response returned."}</pre>
+                  <details>
+                    <summary>Rendered prompt</summary>
+                    <pre>{testResult.renderedPrompt}</pre>
+                  </details>
+                </div>
+              )}
+            </section>
+            <section className="prompt-panel">
+              <h2><FileText size={16} /> Usage</h2>
+              {(selected?.usage ?? []).map((usage, index) => (
+                <div className="usage-row" key={`${usage.module}-${index}`}>
+                  <strong>{usage.service}</strong>
+                  <span>{usage.module}</span>
+                  <small>{usage.trigger}</small>
+                  {usage.model && <small>Model: {usage.model}</small>}
+                </div>
+              ))}
+              {selected && selected.usage.length === 0 && <p>No runtime usage registered.</p>}
+            </section>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }): JSX.Element {
   const content = message.body || message.caption || message.processedText || "-";
   const hasProcessedText = Boolean(message.processedText && message.processedText !== message.body && message.processedText !== message.caption);
@@ -889,6 +1249,68 @@ function cleanMimeType(value: string | null): string | null {
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+type PromptEditorState = {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+  status: string;
+  model: string;
+  temperature: string;
+  maxTokens: string;
+  responseFormat: string;
+};
+
+function promptEditorDefaults(): PromptEditorState {
+  return {
+    key: "",
+    name: "",
+    description: "",
+    category: "Sales",
+    content: "",
+    status: "draft",
+    model: "gpt-5.4-mini",
+    temperature: "0.2",
+    maxTokens: "",
+    responseFormat: ""
+  };
+}
+
+function promptToEditor(prompt: Prompt): PromptEditorState {
+  return {
+    key: prompt.key,
+    name: prompt.name,
+    description: prompt.description ?? "",
+    category: prompt.category,
+    content: prompt.content,
+    status: prompt.status,
+    model: prompt.model ?? "",
+    temperature: prompt.temperature === null ? "" : String(prompt.temperature),
+    maxTokens: prompt.maxTokens === null ? "" : String(prompt.maxTokens),
+    responseFormat: prompt.responseFormat ?? ""
+  };
+}
+
+function numericOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function integerOrNull(value: string): number | null {
+  const parsed = numericOrNull(value);
+  return parsed === null ? null : Math.trunc(parsed);
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  if (!value.trim()) return {};
+  const parsed = JSON.parse(value) as unknown;
+  const record = recordValue(parsed);
+  if (!record) throw new Error("Variables JSON must be an object.");
+  return record;
 }
 
 function Input({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string) => void }): JSX.Element {

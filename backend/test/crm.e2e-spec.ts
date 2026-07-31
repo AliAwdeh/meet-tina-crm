@@ -44,6 +44,8 @@ describe("Meet Tina CRM", () => {
     await prisma.conversation.deleteMany();
     await prisma.customerAttribute.deleteMany();
     await prisma.customer.deleteMany();
+    await prisma.promptVersion.deleteMany();
+    await prisma.prompt.deleteMany();
   });
 
   afterAll(async () => {
@@ -263,6 +265,75 @@ describe("Meet Tina CRM", () => {
     expect(context.body.customer.status).toBe("qualified");
     expect(context.body.attributes.budget).toBe(5000);
     expect(context.body.recentMessages).toHaveLength(3);
+  });
+
+  it("creates prompts, renders safe tests, tracks versions, and restores prior content", async () => {
+    const created = await api().post("/api/v1/prompts").send({
+      key: "sales.test_prompt",
+      name: "Sales test prompt",
+      category: "Sales",
+      status: "active",
+      model: "gpt-5.4-mini",
+      temperature: 0.2,
+      content: "Hello {{ customer_name }}. Ask about {{ business_type }}.",
+      changeNote: "Initial prompt."
+    }).expect(201);
+
+    expect(created.body.version).toBe(1);
+    expect(created.body.variables.map((variable: { name: string }) => variable.name)).toEqual(["customer_name", "business_type"]);
+
+    await api().post("/api/v1/prompts/test").send({
+      promptId: created.body.id,
+      variables: { customer_name: "Ali" },
+      sampleMessage: "hello"
+    }).expect(400);
+
+    const safeTest = await api().post("/api/v1/prompts/test").send({
+      promptId: created.body.id,
+      variables: { customer_name: "Ali", business_type: "clinic" },
+      sampleMessage: "hello"
+    }).expect(201);
+    expect(safeTest.body.destructiveToolsExecuted).toBe(false);
+    expect(safeTest.body.renderedPrompt).toContain("Ali");
+    expect(safeTest.body.response).toContain("Rendered prompt validation completed");
+
+    const updated = await api().put(`/api/v1/prompts/${created.body.id}`).send({
+      content: "Updated prompt for {{ customer_name }}.",
+      changeNote: "Simplified prompt.",
+      updatedBy: "test"
+    }).expect(200);
+    expect(updated.body.version).toBe(2);
+
+    const versions = await api().get(`/api/v1/prompts/${created.body.id}/versions`).expect(200);
+    expect(versions.body).toHaveLength(2);
+    const firstVersion = versions.body.find((version: { version: number }) => version.version === 1);
+    expect(firstVersion).toBeTruthy();
+
+    const restored = await api().post(`/api/v1/prompts/${created.body.id}/restore/${firstVersion.id}`).send({
+      updatedBy: "test",
+      changeNote: "Restore v1."
+    }).expect(201);
+    expect(restored.body.version).toBe(3);
+    expect(restored.body.content).toContain("business_type");
+  });
+
+  it("returns active prompts by stable key with usage metadata", async () => {
+    const created = await api().post("/api/v1/prompts").send({
+      key: "media.test_prompt",
+      name: "Media test prompt",
+      category: "Media",
+      status: "active",
+      content: "Describe the image.",
+      usage: [{ service: "test", module: "spec", trigger: "unit" }]
+    }).expect(201);
+
+    const active = await api().get("/api/v1/prompts/key/media.test_prompt").expect(200);
+    expect(active.body.id).toBe(created.body.id);
+    expect(active.body.usage[0].module).toBe("spec");
+
+    await api().get(`/api/v1/prompts/${created.body.id}/usages`).expect(200).expect((response) => {
+      expect(response.body[0].trigger).toBe("unit");
+    });
   });
 
   function api() {

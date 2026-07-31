@@ -44,6 +44,9 @@ class CpmClient:
     async def get_customer_messages(self, customer_id: str, limit: int = 50) -> dict[str, Any]:
         return await self._request("GET", f"/customers/{customer_id}/messages", params={"limit": limit})
 
+    async def get_active_prompt(self, key: str) -> dict[str, Any]:
+        return await self._request("GET", f"/prompts/key/{key}")
+
     async def create_message(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", "/messages", json=payload)
 

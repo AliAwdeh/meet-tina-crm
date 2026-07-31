@@ -39,7 +39,7 @@ class TinaBrainGraph:
             temperature=settings.tinabrain_temperature,
             api_key=settings.openai_api_key,
         ).bind_tools(self.tools)
-        self.prompt = load_main_prompt()
+        self.fallback_prompt = load_main_prompt()
         self.graph = self._compile()
 
     async def run(self, payload: dict[str, Any]) -> BrainState:
@@ -107,11 +107,22 @@ class TinaBrainGraph:
             ]
         )
 
+        system_prompt = await self._load_system_prompt()
         return {
             **state,
             "context": context,
-            "messages": [SystemMessage(content=self.prompt), HumanMessage(content=user_content)],
+            "messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_content)],
         }
+
+    async def _load_system_prompt(self) -> str:
+        try:
+            prompt = await self.cpm.get_active_prompt("sales.main_system")
+            content = prompt.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+        except Exception:
+            return self.fallback_prompt
+        return self.fallback_prompt
 
     async def _maybe_handoff(self, state: BrainState) -> BrainState:
         if self.settings.n8n_mode != "always":

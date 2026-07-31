@@ -199,3 +199,53 @@ model ProcessingJob {
   @@index([messageId])
   @@index([createdAt])
 }
+
+model Prompt {
+  id             String          @id @default(uuid())
+  key            String          @unique
+  name           String
+  description    String?
+  category       String          @default("Other")
+  content        String
+  version        Int             @default(1)
+  status         String          @default("active")
+  isActive       Boolean         @default(true)
+  model          String?
+  temperature    Float?
+  maxTokens      Int?
+  responseFormat String?
+  variables      String          @default("[]")
+  metadata       String          @default("{}")
+  usage          String          @default("[]")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  versions       PromptVersion[]
+
+  @@index([category])
+  @@index([status])
+  @@index([isActive])
+  @@index([updatedAt])
+}
+
+model PromptVersion {
+  id             String   @id @default(uuid())
+  promptId       String
+  version        Int
+  content        String
+  model          String?
+  temperature    Float?
+  maxTokens      Int?
+  responseFormat String?
+  variables      String   @default("[]")
+  metadata       String   @default("{}")
+  changeNote     String?
+  createdAt      DateTime @default(now())
+  createdBy      String?
+  prompt         Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@unique([promptId, version])
+  @@index([promptId])
+  @@index([createdAt])
+}

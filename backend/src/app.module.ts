@@ -13,6 +13,7 @@ import { MediaModule } from "./media/media.module";
 import { StatsModule } from "./stats/stats.module";
 import { OpenwaModule } from "./integrations/openwa/openwa.module";
 import { ProcessingJobsModule } from "./processing-jobs/processing-jobs.module";
+import { PromptsModule } from "./prompts/prompts.module";
 
 @Module({
   imports: [
@@ -35,7 +36,8 @@ import { ProcessingJobsModule } from "./processing-jobs/processing-jobs.module";
     MediaModule,
     StatsModule,
     OpenwaModule,
-    ProcessingJobsModule
+    ProcessingJobsModule,
+    PromptsModule
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -473,6 +473,128 @@ label {
   margin-top: 12px;
 }
 
+.prompt-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+}
+
+.prompt-list,
+.prompt-editor,
+.prompt-panel {
+  background: #fff;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.prompt-list {
+  align-self: start;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+}
+
+.prompt-filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.prompt-row,
+.version-row {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.prompt-row:hover,
+.prompt-row.active,
+.version-row:hover,
+.version-row.active {
+  background: #eef5f1;
+  border-color: #cfe0d5;
+}
+
+.prompt-row span,
+.prompt-row small,
+.version-row small,
+.prompt-editor-header p,
+.usage-row span,
+.usage-row small {
+  color: #65746c;
+  font-size: 12px;
+}
+
+.prompt-editor-header {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.prompt-content {
+  min-height: 420px;
+  white-space: pre-wrap;
+}
+
+.prompt-tabs {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.prompt-panel h2 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.version-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.diff-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.diff-grid pre,
+.test-result pre {
+  background: #101816;
+  border-radius: 6px;
+  color: #eaf4ee;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.test-result,
+.usage-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
 .compact-error {
   margin-top: 10px;
   padding: 8px 10px;
@@ -525,10 +647,13 @@ label {
   }
 
   .stats-grid,
-  .detail-grid,
-  .form-grid,
-  .conversation-layout,
-  .tool-detail-grid {
+    .detail-grid,
+    .form-grid,
+    .conversation-layout,
+    .tool-detail-grid,
+    .prompt-layout,
+    .prompt-tabs,
+    .diff-grid {
     grid-template-columns: 1fr;
   }
 

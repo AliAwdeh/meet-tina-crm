@@ -1152,6 +1152,11 @@ function AiModelsGraph(): JSX.Element {
 
   const graph = React.useMemo(() => buildAiModelGraph(prompts), [prompts]);
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const nodesByKind = {
+    model: graph.nodes.filter((node) => node.kind === "model"),
+    prompt: graph.nodes.filter((node) => node.kind === "prompt"),
+    service: graph.nodes.filter((node) => node.kind === "service")
+  };
 
   return (
     <section className="page">
@@ -1164,36 +1169,53 @@ function AiModelsGraph(): JSX.Element {
       </div>
       {error && <p className="error">{error}</p>}
       <section className="model-graph-panel">
+        <div className="model-graph-header">
+          <strong>Tina AI runtime map</strong>
+          <span>{nodesByKind.model.length} models · {nodesByKind.prompt.length} prompts · {nodesByKind.service.length} services</span>
+        </div>
         <div className="model-graph">
-          <svg className="model-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <GraphLane title="Models" nodes={nodesByKind.model} />
+          <div className="flow-divider" aria-hidden="true"><ChevronRight size={22} /></div>
+          <GraphLane title="Prompts" nodes={nodesByKind.prompt} />
+          <div className="flow-divider" aria-hidden="true"><ChevronRight size={22} /></div>
+          <GraphLane title="Services" nodes={nodesByKind.service} />
+          <aside className="model-relations">
+            <h2>Connections</h2>
             {graph.edges.map((edge) => {
               const from = nodeById.get(edge.from);
               const to = nodeById.get(edge.to);
               if (!from || !to) return null;
               return (
-                <g key={edge.id}>
-                  <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
-                  <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2}>{edge.label}</text>
-                </g>
+                <div className="relation-row" key={edge.id}>
+                  <span className={`relation-pill ${from.kind}`}>{from.label}</span>
+                  <small>{edge.label}</small>
+                  <span className={`relation-pill ${to.kind}`}>{to.label}</span>
+                </div>
               );
             })}
-          </svg>
-          {graph.nodes.map((node) => (
-            <div
-              className={`model-node ${node.kind}`}
-              key={node.id}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
-            >
-              <strong>{node.label}</strong>
-              <span>{node.detail}</span>
-            </div>
-          ))}
+          </aside>
         </div>
       </section>
       <div className="model-legend">
         <span><b className="legend-box model" /> Model</span>
         <span><b className="legend-box prompt" /> Prompt</span>
         <span><b className="legend-box service" /> Service</span>
+      </div>
+    </section>
+  );
+}
+
+function GraphLane({ title, nodes }: { title: string; nodes: GraphNode[] }): JSX.Element {
+  return (
+    <section className="graph-lane">
+      <h2>{title}</h2>
+      <div className="graph-node-list">
+        {nodes.map((node) => (
+          <div className={`model-node ${node.kind}`} key={node.id}>
+            <strong>{node.label}</strong>
+            <span>{node.detail}</span>
+          </div>
+        ))}
       </div>
     </section>
   );

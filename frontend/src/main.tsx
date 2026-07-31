@@ -756,7 +756,7 @@ function Conversations(): JSX.Element {
                   item.type === "message" ? (
                     <MessageBubble key={`message-${item.message.id}`} message={item.message} />
                   ) : (
-                    <ToolCallBubble key={`tool-${item.job.id}-${item.index}`} job={item.job} call={item.call} />
+                    <AiRunBubble key={`run-${item.job.id}`} job={item.job} />
                   )
                 )}
               </div>
@@ -1225,26 +1225,53 @@ function MessageBubble({ message }: { message: Message }): JSX.Element {
   );
 }
 
-function ToolCallBubble({ job, call }: { job: ProcessingJob; call: ToolCall }): JSX.Element {
+function AiRunBubble({ job }: { job: ProcessingJob }): JSX.Element {
+  const intentContext = extractIntentContext(job);
+  const toolCalls = extractToolCalls(job);
   return (
-    <details className="tool-bubble">
-      <summary>
+    <div className="ai-run-bubble">
+      <div className="run-summary">
         <Wrench size={14} />
-        <span>{call.name}</span>
-        <small>{formatDate(call.triggeredAt ?? job.createdAt)} · {job.status} · attempt {job.attempts}/{job.maxAttempts}</small>
-      </summary>
-      {job.lastError && <p className="error compact-error">{job.lastError}</p>}
-      <div className="tool-detail-grid">
         <div>
-          <strong>Arguments</strong>
-          <pre>{formatJson(call.args)}</pre>
-        </div>
-        <div>
-          <strong>Result</strong>
-          <pre>{formatJson(call.result)}</pre>
+          <strong>AI run</strong>
+          <small>{formatDate(job.createdAt)} · {job.status} · attempt {job.attempts}/{job.maxAttempts}</small>
         </div>
       </div>
-    </details>
+      {job.lastError && <p className="error compact-error">{job.lastError}</p>}
+      <div className="run-dropdowns">
+        <details className="run-detail" open={Boolean(intentContext)}>
+          <summary>Intent classifier</summary>
+          {intentContext ? <pre>{intentContext}</pre> : <p>No intent classifier output recorded for this run.</p>}
+        </details>
+        <details className="run-detail" open={toolCalls.length > 0}>
+          <summary>Tool calls ({toolCalls.length})</summary>
+          {toolCalls.length > 0 ? (
+            <div className="tool-call-list">
+              {toolCalls.map((call, index) => (
+                <section className="tool-call-card" key={`${call.name}-${index}`}>
+                  <header>
+                    <strong>{call.name}</strong>
+                    <small>{formatDate(call.triggeredAt ?? job.updatedAt ?? job.createdAt)}</small>
+                  </header>
+                  <div className="tool-detail-grid">
+                    <div>
+                      <strong>Arguments</strong>
+                      <pre>{formatJson(call.args)}</pre>
+                    </div>
+                    <div>
+                      <strong>Result</strong>
+                      <pre>{formatJson(call.result)}</pre>
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p>No tool calls recorded for this run.</p>
+          )}
+        </details>
+      </div>
+    </div>
   );
 }
 
@@ -1275,7 +1302,7 @@ function mediaPreviewSrc(attachment: MediaAttachment): string | null {
 
 type ConversationTimelineItem =
   | { type: "message"; at: string; message: Message }
-  | { type: "tool"; at: string; job: ProcessingJob; call: ToolCall; index: number };
+  | { type: "run"; at: string; job: ProcessingJob };
 
 function buildConversationTimeline(messages: Message[], jobs: ProcessingJob[]): ConversationTimelineItem[] {
   const items: ConversationTimelineItem[] = messages.map((message) => ({
@@ -1284,14 +1311,10 @@ function buildConversationTimeline(messages: Message[], jobs: ProcessingJob[]): 
     message
   }));
   for (const job of jobs) {
-    extractToolCalls(job).forEach((call, index) => {
-      items.push({
-        type: "tool",
-        at: call.triggeredAt ?? job.createdAt,
-        job,
-        call,
-        index
-      });
+    items.push({
+      type: "run",
+      at: job.createdAt,
+      job
     });
   }
   return items.sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime());
@@ -1318,20 +1341,62 @@ function extractToolCalls(job: ProcessingJob): ToolCall[] {
   const payload = parseJson(job.payload);
   const dispatch = recordValue(result?.dispatch);
   const callback = recordValue(result?.callback);
-  const tinaResponse = recordValue(result?.tinaResponse);
+  const stages = extractJobStages(job);
+  const tinaResponses = extractTinaResponses(job);
   const candidates = [
     result?.toolCalls,
     result?.tool_calls,
-    tinaResponse?.toolCalls,
-    tinaResponse?.tool_calls,
     dispatch?.toolCalls,
     dispatch?.tool_calls,
     callback?.toolCalls,
     callback?.tool_calls,
     payload?.toolCalls,
-    payload?.tool_calls
+    payload?.tool_calls,
+    ...stages.flatMap((stage) => [stage.toolCalls, stage.tool_calls]),
+    ...tinaResponses.flatMap((response) => [response.toolCalls, response.tool_calls])
   ];
-  return candidates.flatMap((candidate) => normalizeToolCalls(candidate));
+  const calls = candidates.flatMap((candidate) => normalizeToolCalls(candidate));
+  const seen = new Set<string>();
+  return calls.filter((call) => {
+    const key = `${call.name}:${call.triggeredAt ?? ""}:${formatJson(call.args)}:${formatJson(call.result)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractIntentContext(job: ProcessingJob): string | null {
+  const result = parseJson(job.result);
+  const payload = parseJson(job.payload);
+  const stages = extractJobStages(job);
+  const tinaResponses = extractTinaResponses(job);
+  const candidates = [
+    result?.intentContext,
+    result?.intent_context,
+    payload?.intentContext,
+    payload?.intent_context,
+    ...stages.flatMap((stage) => [stage.intentContext, stage.intent_context, recordValue(stage.intent)?.context]),
+    ...tinaResponses.flatMap((response) => [response.intentContext, response.intent_context, recordValue(response.intent)?.context])
+  ];
+  for (const candidate of candidates) {
+    const value = stringValue(candidate);
+    if (value) return value;
+  }
+  return null;
+}
+
+function extractTinaResponses(job: ProcessingJob): Record<string, unknown>[] {
+  const result = parseJson(job.result);
+  return [recordValue(result?.tinaResponse), ...extractJobStages(job).map((stage) => recordValue(stage.tinaResponse))]
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+}
+
+function extractJobStages(job: ProcessingJob): Record<string, unknown>[] {
+  const result = parseJson(job.result);
+  const stages = Array.isArray(result?.stages) ? result.stages : [];
+  return stages
+    .map((stage) => recordValue(stage))
+    .filter((stage): stage is Record<string, unknown> => Boolean(stage));
 }
 
 function normalizeToolCalls(value: unknown): ToolCall[] {
@@ -1463,6 +1528,10 @@ function parseJson(value: string | null | undefined): Record<string, unknown> | 
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function cleanMimeType(value: string | null): string | null {

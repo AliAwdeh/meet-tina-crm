@@ -407,7 +407,8 @@ label {
 }
 
 .message-analysis,
-.tool-bubble pre {
+.tool-bubble pre,
+.ai-run-bubble pre {
   background: #101816;
   border-radius: 6px;
   color: #eaf4ee;
@@ -453,6 +454,75 @@ label {
   max-width: min(780px, 88%);
   padding: 10px 12px;
   width: 100%;
+}
+
+.ai-run-bubble {
+  background: #fff;
+  border: 1px solid #cbd8d0;
+  border-radius: 8px;
+  justify-self: center;
+  max-width: min(780px, 88%);
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.run-summary {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.run-summary div {
+  display: grid;
+  gap: 2px;
+}
+
+.run-summary small {
+  color: #65746c;
+}
+
+.run-dropdowns {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.run-detail {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 8px;
+}
+
+.run-detail summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.run-detail > p {
+  color: #65746c;
+  margin: 8px 0 0;
+}
+
+.tool-call-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.tool-call-card {
+  border: 1px solid #dce3dd;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.tool-call-card header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.tool-call-card header small {
+  color: #65746c;
 }
 
 .tool-bubble summary {

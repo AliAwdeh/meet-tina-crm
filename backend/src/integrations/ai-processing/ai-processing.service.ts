@@ -327,9 +327,18 @@ export class AiProcessingService implements OnModuleInit, OnModuleDestroy {
       if (!parsed?.success) {
         throw new StageError("tina_response", `TinaBrain returned an unsuccessful response: ${stringifyJson(body, "{}")}`);
       }
+      const toolCalls = Array.isArray(parsed.toolCalls) ? parsed.toolCalls : Array.isArray(parsed.tool_calls) ? parsed.tool_calls : [];
       await this.prisma.processingJob.update({
         where: { id: job.id },
-        data: { result: this.appendStage(await this.currentResult(job.id), "tina_response", { ok: true, replyPresent: Boolean(parsed.reply) }) }
+        data: {
+          result: this.appendStage(await this.currentResult(job.id), "tina_response", {
+            ok: true,
+            replyPresent: Boolean(parsed.reply),
+            intentContext: stringValue(parsed.intentContext) ?? stringValue(parsed.intent_context),
+            toolCallCount: toolCalls.length,
+            tinaResponse: parsed
+          })
+        }
       });
       return parsed;
     } catch (error) {
